@@ -16,38 +16,110 @@ This document tracks all tasks required to implement quantum-safe signatures in 
 
 Based on dependency analysis and practical implementation experience, here is the recommended order for completing the remaining tasks:
 
-### Critical Path (Must Complete First)
-1. **Phase 2.3 - Key Management Extensions** (4 tasks)
-   - Wallet encryption for quantum keys [SECURITY CRITICAL]
-   - Key migration utilities [USER ADOPTION CRITICAL]
-   - Associated tests
+### Phase 1: Critical Security Tasks (Must Complete First)
+These tasks are foundational for security and must be completed before any wallet operations:
 
-2. **Phase 6.1 - Wallet Backend Updates** (8 tasks)
-   - Key generation RPC
-   - Coin selection for quantum addresses
-   - Wallet migration tools
-   - Comprehensive wallet tests
+1. **Wallet Encryption for Quantum Keys** (Phase 2.3) [SECURITY CRITICAL]
+   - Extend wallet encryption to handle quantum private keys
+   - Ensure secure storage of larger quantum key material
+   - Required before: Any wallet persistence operations
 
-3. **Phase 6.2 - RPC Interface Extensions** (3 tasks)
-   - `migratewallet` RPC command
-   - RPC documentation
-   - Backward compatibility tests
+2. **Test Wallet Encryption** (Phase 2.3)
+   - Verify encryption/decryption of quantum keys
+   - Test key security under various scenarios
+   - Required before: Releasing any wallet features
 
-### Optional/Deferred (May Not Be Needed)
-4. **Phase 5 - Network Protocol Updates** (All tasks)
-   - Analysis shows these may not be required
-   - Standard Bitcoin protocol appears sufficient
-   - Only implement if integration testing reveals issues
+### Phase 2: Core Wallet Infrastructure
+These enable basic quantum wallet functionality:
 
-5. **Phase 7 - Testing & Validation** (All tasks)
-   - Unit tests are being written with features
-   - Integration testing deferred until features complete
-   - Security audit preparation for final release
+3. **Key Generation RPC** (Phase 6.1) [HIGH PRIORITY]
+   - Implement UI/RPC for generating quantum keys
+   - Enable users to create quantum addresses
+   - Required before: Migration tools (need ability to create destination keys)
 
-### Key Insights:
-- Phase 5 (Network Protocol) has 0% completion but Phase 6 (Wallet) is 85.7% complete, indicating network changes aren't required
-- The plan explicitly states "minimal/no protocol changes needed"
-- Focus on completing wallet functionality and migration tools for user adoption
+4. **Coin Selection for Quantum Addresses** (Phase 6.1) [HIGH PRIORITY]
+   - Update coin selection algorithms for quantum UTXOs
+   - Handle mixed ECDSA/quantum coin selection
+   - Required before: Transaction creation from quantum addresses
+
+5. **Create quantum_wallet_tests.cpp** (Phase 6.1) [HIGH PRIORITY]
+   - Comprehensive test suite for wallet functionality
+   - Test all quantum wallet operations
+   - Should be done alongside: Each wallet feature implementation
+
+### Phase 3: Migration and User Adoption
+Critical for allowing users to transition to quantum-safe addresses:
+
+6. **Key Migration Utilities** (Phase 2.3) [USER ADOPTION CRITICAL]
+   - Create tools to migrate from ECDSA to quantum keys
+   - Support both manual and automated migration
+   - Required before: migratewallet RPC
+
+7. **Wallet Migration Tools** (Phase 6.1) [CRITICAL]
+   - Implement full wallet migration functionality
+   - Handle UTXO migration strategies
+   - Required before: migratewallet RPC
+
+8. **migratewallet RPC Command** (Phase 6.2) [CRITICAL]
+   - User-facing command for wallet migration
+   - Simple interface: `bitcoin-cli migratewallet quantum`
+   - Depends on: Migration utilities and tools
+
+9. **Test Key Migration** (Phase 2.3) [CRITICAL]
+   - Verify ECDSA to quantum migration paths
+   - Test edge cases and failure scenarios
+   - Should accompany: Migration implementation
+
+10. **Test Wallet Migration Scenarios** (Phase 6.1) [CRITICAL]
+    - End-to-end migration testing
+    - Test various wallet configurations
+    - Should accompany: Migration tools
+
+### Phase 4: Documentation and Polish
+Important but not blocking core functionality:
+
+11. **RPC Documentation** (Phase 6.2) [MEDIUM PRIORITY]
+    - Document all quantum RPC commands
+    - Provide migration guides
+    - Can be done in parallel with: Other tasks
+
+12. **Test Backward Compatibility** (Phase 6.2) [HIGH PRIORITY]
+    - Ensure quantum wallets work with existing infrastructure
+    - Test mixed ECDSA/quantum scenarios
+    - Should be done after: Core wallet features complete
+
+### Phase 5: Optional/Deferred Tasks
+These may not be needed based on current implementation:
+
+13. **Phase 5 - Network Protocol Updates** (All 13 tasks) [OPTIONAL]
+    - Current implementation works without protocol changes
+    - Standard Bitcoin protocol handles quantum transactions
+    - Only implement if: Integration testing reveals specific issues
+
+14. **Phase 7 - Testing & Validation** (All 14 tasks) [DEFERRED]
+    - Unit tests are being written alongside features
+    - Integration testing should happen after core features
+    - Security audit preparation for final release
+
+### Implementation Strategy:
+1. **Security First**: Complete wallet encryption before any persistence
+2. **Enable Creation**: Users need to create quantum addresses before migration
+3. **Migration Path**: Build migration tools to enable user adoption
+4. **Test Continuously**: Write tests alongside each feature
+5. **Document Late**: Focus on functionality first, documentation can follow
+
+### Key Dependencies:
+- Wallet encryption → All wallet persistence operations
+- Key generation → Migration tools (need destination addresses)
+- Migration utilities → migratewallet RPC
+- All wallet features → Backward compatibility testing
+
+### Estimated Timeline:
+- Phase 1 (Security): 1 week
+- Phase 2 (Infrastructure): 2 weeks  
+- Phase 3 (Migration): 2 weeks
+- Phase 4 (Polish): 1 week
+- **Total: 6 weeks for MVP completion**
 
 ## Build Instructions
 
@@ -855,8 +927,8 @@ class ISignatureScheme {
 
 ---
 
-*Last Updated: January 27, 2025*  
-*Version: 1.6* - Priorities optimized based on dependency analysis  
+*Last Updated: June 27, 2025*  
+*Version: 1.7* - Task ordering optimized for implementation efficiency and dependencies  
 
 ## Living Document Policy
 
