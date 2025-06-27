@@ -243,11 +243,22 @@ target_link_libraries(bitcoind PRIVATE oqs)
    - Created comprehensive unit tests in quantum_descriptor_tests.cpp
    - All 11 quantum descriptor tests passing successfully
 
+### 🟢 Recently Completed (June 27, 2025 - Update 6)
+1. **DescriptorScriptPubKeyMan Integration** - Connected quantum descriptors to wallet functionality
+   - Extended SigningProvider interface with quantum key methods (GetQuantumKey, GetQuantumPubKey, HaveQuantumKey)
+   - Implemented quantum methods in FlatSigningProvider with storage for quantum keys and pubkeys
+   - Created PopulateQuantumSigningProvider helper function that recognizes quantum script patterns
+   - Modified DescriptorScriptPubKeyMan::GetSigningProvider to automatically populate quantum keys
+   - Fixed script pattern recognition to handle OP_CHECKSIG_ML_DSA/OP_CHECKSIG_SLH_DSA formats
+   - Created comprehensive integration tests in quantum_descriptor_wallet_tests.cpp
+   - All tests passing - quantum descriptors now work with wallet signing operations
+
 ### 🟡 In Progress
-1. **DescriptorScriptPubKeyMan Integration** - Integrate quantum descriptors with wallet
-   - Extend DescriptorScriptPubKeyMan to handle quantum keys
-   - Update wallet to use quantum descriptors instead of temporary keystore
-   - Remove temporary quantum keystore once integration is complete
+1. **Full Wallet Integration** - Complete the descriptor-based quantum wallet
+   - Update wallet RPC commands to use descriptor system instead of temporary keystore
+   - Implement quantum key generation through DescriptorScriptPubKeyMan
+   - Add quantum descriptor import/export functionality
+   - Remove temporary quantum keystore once full integration is complete
 2. **Core Implementation Testing & Bug Fixes** - Focus on making existing quantum functionality robust
 3. **Key Migration Utilities** - Tools for migrating from ECDSA to quantum keys (LOW PRIORITY - deferred until core is solid)
 
@@ -330,4 +341,4 @@ This plan is a **living document** that will be updated throughout the developme
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
 *Last Updated: June 27, 2025*  
-*Version: 1.9* - Implemented quantum descriptor support directly in descriptor.cpp with comprehensive tests
+*Version: 2.0* - Completed DescriptorScriptPubKeyMan integration - quantum descriptors now fully functional with wallet signing

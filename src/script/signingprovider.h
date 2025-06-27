@@ -13,6 +13,7 @@
 #include <script/keyorigin.h>
 #include <script/script.h>
 #include <sync.h>
+#include <crypto/quantum_key.h>
 
 struct ShortestVectorFirstComparator
 {
@@ -161,6 +162,11 @@ public:
     virtual bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const { return false; }
     virtual bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const { return false; }
     virtual bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const { return false; }
+    
+    // Quantum key support
+    virtual bool GetQuantumKey(const CKeyID& keyid, quantum::CQuantumKey** key) const { return false; }
+    virtual bool GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const { return false; }
+    virtual bool HaveQuantumKey(const CKeyID& keyid) const { return false; }
 
     bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
     {
@@ -213,6 +219,11 @@ struct FlatSigningProvider final : public SigningProvider
     std::map<CKeyID, std::pair<CPubKey, KeyOriginInfo>> origins;
     std::map<CKeyID, CKey> keys;
     std::map<XOnlyPubKey, TaprootBuilder> tr_trees; /** Map from output key to Taproot tree (which can then make the TaprootSpendData */
+    
+    // Quantum key support
+    // Note: quantum_keys stores non-owning pointers to keys that are owned elsewhere (e.g., wallet)
+    std::map<CKeyID, const quantum::CQuantumKey*> quantum_keys;
+    std::map<CKeyID, quantum::CQuantumPubKey> quantum_pubkeys;
 
     bool GetCScript(const CScriptID& scriptid, CScript& script) const override;
     bool GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const override;
@@ -221,6 +232,11 @@ struct FlatSigningProvider final : public SigningProvider
     bool GetKey(const CKeyID& keyid, CKey& key) const override;
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
+    
+    // Quantum key support
+    bool GetQuantumKey(const CKeyID& keyid, quantum::CQuantumKey** key) const override;
+    bool GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const override;
+    bool HaveQuantumKey(const CKeyID& keyid) const override;
 
     FlatSigningProvider& Merge(FlatSigningProvider&& b) LIFETIMEBOUND;
 };

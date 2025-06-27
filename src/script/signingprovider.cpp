@@ -82,6 +82,26 @@ bool FlatSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tapro
     return LookupHelper(tr_trees, output_key, builder);
 }
 
+bool FlatSigningProvider::GetQuantumKey(const CKeyID& keyid, quantum::CQuantumKey** key) const
+{
+    auto it = quantum_keys.find(keyid);
+    if (it != quantum_keys.end() && it->second) {
+        if (key) *key = const_cast<quantum::CQuantumKey*>(it->second);
+        return true;
+    }
+    return false;
+}
+
+bool FlatSigningProvider::GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const
+{
+    return LookupHelper(quantum_pubkeys, keyid, pubkey);
+}
+
+bool FlatSigningProvider::HaveQuantumKey(const CKeyID& keyid) const
+{
+    return quantum_keys.count(keyid) > 0;
+}
+
 FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
 {
     scripts.merge(b.scripts);
@@ -89,6 +109,13 @@ FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
     keys.merge(b.keys);
     origins.merge(b.origins);
     tr_trees.merge(b.tr_trees);
+    
+    // Merge quantum keys and pubkeys
+    for (auto& [keyid, key] : b.quantum_keys) {
+        quantum_keys[keyid] = key;
+    }
+    quantum_pubkeys.merge(std::move(b.quantum_pubkeys));
+    
     return *this;
 }
 

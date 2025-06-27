@@ -18,6 +18,7 @@
 #include <util/time.h>
 #include <util/translation.h>
 #include <wallet/scriptpubkeyman.h>
+#include <wallet/quantum_descriptor_util.h>
 
 #include <optional>
 
@@ -1212,7 +1213,12 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     }
     int32_t index = it->second;
 
-    return GetSigningProvider(index, include_private);
+    auto provider = GetSigningProvider(index, include_private);
+    if (provider) {
+        // Populate quantum keys for this script if needed
+        PopulateQuantumSigningProvider(script, *provider, include_private);
+    }
+    return provider;
 }
 
 std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvider(const CPubKey& pubkey) const
