@@ -50,6 +50,7 @@ add_executable(test_bitcoin
   quantum_wallet_encryption_tests.cpp
   quantum_wallet_tests.cpp
   quantum_coinselection_tests.cpp
+  quantum_descriptor_tests.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
   descriptor_tests.cpp

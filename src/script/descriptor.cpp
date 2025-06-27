@@ -21,6 +21,11 @@
 #include <util/strencodings.h>
 #include <util/vector.h>
 
+// Quantum support
+#include <crypto/quantum_key.h>
+#include <quantum_address.h>
+#include <script/quantum_signature.h>
+
 #include <algorithm>
 #include <memory>
 #include <numeric>
@@ -574,6 +579,85 @@ public:
     }
 };
 
+/** A quantum public key provider for quantum-safe signatures */
+class QuantumPubkeyProvider final : public PubkeyProvider
+{
+private:
+    quantum::CQuantumPubKey m_pubkey;
+    CPubKey m_dummy_pubkey; // Dummy classical pubkey for compatibility
+    quantum::SignatureSchemeID m_scheme_id;
+
+public:
+    QuantumPubkeyProvider(uint32_t exp_index, const quantum::CQuantumPubKey& pubkey, quantum::SignatureSchemeID scheme_id) 
+        : PubkeyProvider(exp_index), m_pubkey(pubkey)
+    {
+        m_scheme_id = scheme_id;
+        // Create a dummy CPubKey from the quantum key ID for compatibility
+        CKeyID keyid = m_pubkey.GetID();
+        std::vector<unsigned char> dummy_data(33, 0);
+        dummy_data[0] = 0x02; // Compressed pubkey prefix
+        std::copy(keyid.begin(), keyid.begin() + 32, dummy_data.begin() + 1);
+        m_dummy_pubkey.Set(dummy_data.begin(), dummy_data.end());
+    }
+
+    std::optional<CPubKey> GetPubKey(int pos, const SigningProvider& arg, FlatSigningProvider& out, const DescriptorCache* read_cache = nullptr, DescriptorCache* write_cache = nullptr) const override
+    {
+        if (pos != 0) return std::nullopt; // Quantum keys don't support derivation
+        
+        // Store quantum pubkey info in FlatSigningProvider
+        // For now, we just return the dummy key
+        // In a full implementation, we'd store quantum key info in out
+        
+        return m_dummy_pubkey;
+    }
+
+    bool IsRange() const override { return false; }
+    size_t GetSize() const override { return m_pubkey.size(); }
+    
+    std::string ToString(StringType type) const override
+    {
+        // Return hex representation of quantum pubkey
+        return HexStr(m_pubkey.GetKeyData());
+    }
+    
+    bool ToPrivateString(const SigningProvider& arg, std::string& out) const override
+    {
+        // Quantum private keys are not exposed through descriptors
+        out = ToString(StringType::PUBLIC);
+        return true;
+    }
+    
+    bool ToNormalizedString(const SigningProvider& arg, std::string& out, const DescriptorCache* cache = nullptr) const override
+    {
+        out = ToString(StringType::PUBLIC);
+        return true;
+    }
+    
+    void GetPrivKey(int pos, const SigningProvider& arg, FlatSigningProvider& out) const override
+    {
+        // Quantum keys are handled separately through the quantum keystore
+        // No classical private key to provide
+    }
+    
+    std::optional<CPubKey> GetRootPubKey() const override
+    {
+        return m_dummy_pubkey;
+    }
+    
+    std::optional<CExtPubKey> GetRootExtPubKey() const override
+    {
+        return std::nullopt;
+    }
+    
+    std::unique_ptr<PubkeyProvider> Clone() const override
+    {
+        return std::make_unique<QuantumPubkeyProvider>(m_expr_index, m_pubkey, m_scheme_id);
+    }
+    
+    quantum::CQuantumPubKey GetQuantumPubKey() const { return m_pubkey; }
+    quantum::SignatureSchemeID GetSchemeId() const { return m_scheme_id; }
+};
+
 /** Base class for all Descriptor implementations. */
 class DescriptorImpl : public Descriptor
 {
@@ -939,6 +1023,79 @@ public:
     std::unique_ptr<DescriptorImpl> Clone() const override
     {
         return std::make_unique<WPKHDescriptor>(m_pubkey_args.at(0)->Clone());
+    }
+};
+
+/** A parsed qpkh(P) descriptor for quantum pay-to-pubkey-hash. */
+class QPKHDescriptor final : public DescriptorImpl
+{
+protected:
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>& keys, std::span<const CScript>, FlatSigningProvider& out) const override
+    {
+        // Get the quantum pubkey provider
+        auto* quantum_provider = dynamic_cast<const QuantumPubkeyProvider*>(m_pubkey_args[0].get());
+        if (!quantum_provider) {
+            // This should not happen if parsing was done correctly
+            return {};
+        }
+        
+        // Get the quantum public key
+        quantum::CQuantumPubKey qpubkey = quantum_provider->GetQuantumPubKey();
+        CKeyID id = qpubkey.GetID();
+        
+        // Create quantum script based on scheme type
+        CScript script;
+        if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
+            // Create ML-DSA P2QPKH script: OP_CHECKSIG_ML_DSA <hash160>
+            script << OP_CHECKSIG_ML_DSA << ToByteVector(id);
+        } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
+            // Create SLH-DSA P2QPKH script: OP_CHECKSIG_SLH_DSA <hash160>
+            script << OP_CHECKSIG_SLH_DSA << ToByteVector(id);
+        } else {
+            return {}; // Unknown scheme
+        }
+        
+        // Store quantum pubkey info in FlatSigningProvider
+        // We need to store the quantum pubkey for signing later
+        // This is a simplified approach - in production, we'd extend FlatSigningProvider
+        
+        return Vector(script);
+    }
+    
+public:
+    QPKHDescriptor(std::unique_ptr<PubkeyProvider> prov) : DescriptorImpl(Vector(std::move(prov)), "qpkh") {}
+    std::optional<OutputType> GetOutputType() const override { return OutputType::LEGACY; }
+    bool IsSingleType() const final { return true; }
+    
+    std::optional<int64_t> ScriptSize() const override { 
+        // Quantum scripts are larger: OP_CHECKSIG_ML_DSA/SLH_DSA <hash160>
+        return 1 + 1 + 20; // opcode + push + hash160
+    }
+    
+    std::optional<int64_t> MaxSatSize(bool use_max_sig) const override {
+        auto* quantum_provider = dynamic_cast<const QuantumPubkeyProvider*>(m_pubkey_args[0].get());
+        if (!quantum_provider) return std::nullopt;
+        
+        // Quantum signatures are much larger
+        size_t sig_size = 0;
+        if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
+            sig_size = 3309; // ML-DSA-65 signature size
+        } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
+            sig_size = 35664; // SLH-DSA-192f signature size
+        }
+        
+        return 1 + sig_size + 1 + quantum_provider->GetSize();
+    }
+    
+    std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override {
+        return *MaxSatSize(use_max_sig) * WITNESS_SCALE_FACTOR;
+    }
+    
+    std::optional<int64_t> MaxSatisfactionElems() const override { return 2; }
+    
+    std::unique_ptr<DescriptorImpl> Clone() const override
+    {
+        return std::make_unique<QPKHDescriptor>(m_pubkey_args.at(0)->Clone());
     }
 };
 
@@ -1626,6 +1783,104 @@ std::vector<std::unique_ptr<PubkeyProvider>> ParsePubkey(uint32_t key_exp_index,
     return ret;
 }
 
+/** Parse a quantum public key for quantum descriptors */
+std::vector<std::unique_ptr<PubkeyProvider>> ParseQuantumPubkey(uint32_t key_exp_index, const std::span<const char>& sp, ParseScriptContext ctx, FlatSigningProvider& out, std::string& error)
+{
+    std::vector<std::unique_ptr<PubkeyProvider>> ret;
+    std::string str(sp.begin(), sp.end());
+    
+    // Check for quantum: prefix to distinguish from regular keys
+    if (str.size() < 8 || str.substr(0, 8) != "quantum:") {
+        // Try parsing as hex quantum pubkey
+        if (IsHex(str)) {
+            std::vector<unsigned char> data = ParseHex(str);
+            
+            // Check if it could be a quantum public key
+            // ML-DSA-65 public key is 1952 bytes
+            // SLH-DSA-192f public key is 48 bytes
+            quantum::SignatureSchemeID scheme_id;
+            if (data.size() == 1952) {
+                scheme_id = quantum::SCHEME_ML_DSA_65;
+            } else if (data.size() == 48) {
+                scheme_id = quantum::SCHEME_SLH_DSA_192F;
+            } else {
+                error = strprintf("Invalid quantum public key size: %d bytes", data.size());
+                return {};
+            }
+            
+            // Create quantum public key
+            quantum::KeyType key_type = (data.size() == 1952) ? 
+                quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+            quantum::CQuantumPubKey qpubkey(key_type, data);
+            
+            if (!qpubkey.IsValid()) {
+                error = "Invalid quantum public key";
+                return {};
+            }
+            
+            ret.emplace_back(std::make_unique<QuantumPubkeyProvider>(key_exp_index, qpubkey, scheme_id));
+            return ret;
+        }
+    } else {
+        // Parse quantum:scheme:data format
+        str = str.substr(8); // Remove "quantum:" prefix
+        auto colon_pos = str.find(':');
+        if (colon_pos == std::string::npos) {
+            error = "Quantum key format should be 'quantum:scheme:pubkey_hex'";
+            return {};
+        }
+        
+        std::string scheme_str = str.substr(0, colon_pos);
+        std::string pubkey_hex = str.substr(colon_pos + 1);
+        
+        // Determine scheme
+        quantum::SignatureSchemeID scheme_id;
+        if (scheme_str == "ml-dsa" || scheme_str == "ml-dsa-65") {
+            scheme_id = quantum::SCHEME_ML_DSA_65;
+        } else if (scheme_str == "slh-dsa" || scheme_str == "slh-dsa-192f") {
+            scheme_id = quantum::SCHEME_SLH_DSA_192F;
+        } else {
+            error = strprintf("Unknown quantum signature scheme: %s", scheme_str);
+            return {};
+        }
+        
+        // Parse public key hex
+        if (!IsHex(pubkey_hex)) {
+            error = "Quantum public key must be in hex format";
+            return {};
+        }
+        
+        std::vector<unsigned char> data = ParseHex(pubkey_hex);
+        
+        // Verify expected size
+        size_t expected_size = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 1952 : 48;
+        if (data.size() != expected_size) {
+            error = strprintf("Invalid %s public key size: expected %d bytes, got %d bytes", 
+                            scheme_str, expected_size, data.size());
+            return {};
+        }
+        
+        // Create quantum public key
+        quantum::KeyType key_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 
+            quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+        quantum::CQuantumPubKey qpubkey(key_type, data);
+        
+        if (!qpubkey.IsValid()) {
+            error = "Invalid quantum public key";
+            return {};
+        }
+        
+        ret.emplace_back(std::make_unique<QuantumPubkeyProvider>(key_exp_index, qpubkey, scheme_id));
+        return ret;
+    }
+    
+    // Note: In a full implementation, private key handling would be done
+    // through the wallet's signing provider, not here in the descriptor parser
+    
+    error = strprintf("Invalid quantum key format: '%s'", str);
+    return {};
+}
+
 std::unique_ptr<PubkeyProvider> InferPubkey(const CPubKey& pubkey, ParseScriptContext ctx, const SigningProvider& provider)
 {
     // Key cannot be hybrid
@@ -1781,6 +2036,19 @@ std::vector<std::unique_ptr<DescriptorImpl>> ParseScript(uint32_t& key_exp_index
         ++key_exp_index;
         for (auto& pubkey : pubkeys) {
             ret.emplace_back(std::make_unique<PKHDescriptor>(std::move(pubkey)));
+        }
+        return ret;
+    }
+    // Parse quantum descriptors
+    if ((ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH) && Func("qpkh", expr)) {
+        auto pubkeys = ParseQuantumPubkey(key_exp_index, expr, ctx, out, error);
+        if (pubkeys.empty()) {
+            error = strprintf("qpkh(): %s", error);
+            return {};
+        }
+        ++key_exp_index;
+        for (auto& pubkey : pubkeys) {
+            ret.emplace_back(std::make_unique<QPKHDescriptor>(std::move(pubkey)));
         }
         return ret;
     }

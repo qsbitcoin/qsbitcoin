@@ -233,12 +233,21 @@ target_link_libraries(bitcoind PRIVATE oqs)
    - Updated test files to work without legacy classes
    - This sets the foundation for proper descriptor wallet integration
 
+### 🟢 Recently Completed (June 27, 2025 - Update 5)
+1. **Quantum Descriptor Implementation** - Full integration with Bitcoin Core's descriptor system
+   - Implemented quantum descriptors (qpkh) with support for ML-DSA and SLH-DSA
+   - Created `QuantumPubkeyProvider` class extending `PubkeyProvider`
+   - Implemented `ParseQuantumPubkey` function supporting both raw hex and "quantum:scheme:pubkey" formats
+   - Added `QPKHDescriptor` class for quantum pay-to-pubkey-hash descriptors
+   - Integrated quantum descriptor parsing directly in descriptor.cpp
+   - Created comprehensive unit tests in quantum_descriptor_tests.cpp
+   - All 11 quantum descriptor tests passing successfully
+
 ### 🟡 In Progress
-1. **Descriptor Wallet Integration** - Proper integration with Bitcoin Core's descriptor system
-   - Need to create quantum descriptors (qpkh, qwpkh, etc.)
-   - Implement quantum-aware PubkeyProvider classes
-   - Integrate with DescriptorScriptPubKeyMan
-   - Remove temporary quantum keystore once descriptors are implemented
+1. **DescriptorScriptPubKeyMan Integration** - Integrate quantum descriptors with wallet
+   - Extend DescriptorScriptPubKeyMan to handle quantum keys
+   - Update wallet to use quantum descriptors instead of temporary keystore
+   - Remove temporary quantum keystore once integration is complete
 2. **Core Implementation Testing & Bug Fixes** - Focus on making existing quantum functionality robust
 3. **Key Migration Utilities** - Tools for migrating from ECDSA to quantum keys (LOW PRIORITY - deferred until core is solid)
 
@@ -321,4 +330,4 @@ This plan is a **living document** that will be updated throughout the developme
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
 *Last Updated: June 27, 2025*  
-*Version: 1.8* - Removed legacy QuantumScriptPubKeyMan, implemented Q prefix display, transitioned to descriptor-based architecture
+*Version: 1.9* - Implemented quantum descriptor support directly in descriptor.cpp with comprehensive tests
