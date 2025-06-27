@@ -1,0 +1,171 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+compile_commands.json
+
+# C++ build artifacts
+*.o
+*.obj
+*.lo
+*.la
+*.al
+*.libs
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.a
+*.lib
+*.lai
+*.slo
+*.mod
+*.smod
+
+# Qt generated files
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qm
+*.prl
+Qt5*.dll
+Qt5*.so
+Qt5*.dylib
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv
+.env
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.cproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+*.user
+*.suo
+*.ncb
+*.sdf
+*.opensdf
+*.vcxproj.*
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.bak
+*.tmp
+*.temp
+
+# Test files
+test-suite.log
+.deps/
+.dirstamp
+test_bitcoin
+test_bitcoin.exe
+*.log
+*.trs
+
+# Generated documentation
+doc/doxygen/
+doc/man/
+
+# Wallet and data files
+*.dat
+*.dat.old
+debug.log
+db.log
+*.pid
+.lock
+.cookie
+
+# Autotools generated files (if still present)
+Makefile.in
+aclocal.m4
+autom4te.cache/
+config.log
+config.status
+configure
+libtool
+src/config/bitcoin-config.h
+src/config/bitcoin-config.h.in
+src/config/stamp-h1
+
+# Coverage reports
+*.gcda
+*.gcno
+*.gcov
+coverage.info
+coverage/
+lcov/
+
+# Benchmark results
+bench.csv
+
+# liboqs specific
+liboqs/build/
+liboqs/.build/
+liboqs/*.a
+liboqs/*.so
+liboqs/*.dylib
+liboqs/*.dll
+
+# Dependencies
+depends/built/
+depends/sources/
+depends/work/
+depends/x86_64*/
+depends/i686*/
+depends/arm*/
+depends/aarch64*/
+depends/riscv64*/
+depends/powerpc64*/
+depends/host*/
+depends/SDKs/
+depends/sdk-sources/
+
+# Distribution packages
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.zip
+*.dmg
+*.deb
+*.rpm
+dist/
+
+# Temporary files
+*.orig
+*.rej
+*.patch
