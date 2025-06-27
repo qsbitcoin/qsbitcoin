@@ -20,6 +20,8 @@ class CScript;
 class uint160;
 class uint256;
 struct CBlockLocator;
+class CKeyID;
+class CScriptID;
 
 namespace wallet {
 class CMasterKey;
@@ -82,6 +84,12 @@ extern const std::string WALLETDESCRIPTORCKEY;
 extern const std::string WALLETDESCRIPTORKEY;
 extern const std::string WATCHMETA;
 extern const std::string WATCHS;
+extern const std::string QUANTUM_KEY;
+extern const std::string QUANTUM_CRYPTED_KEY;
+extern const std::string QUANTUM_PUBKEY;
+extern const std::string QUANTUM_KEYMETA;
+extern const std::string QUANTUM_SCRIPT;
+extern const std::string QUANTUM_SPKM;
 
 // Keys in this set pertain only to the legacy wallet (LegacyScriptPubKeyMan) and are removed during migration from legacy to descriptors.
 extern const std::unordered_set<std::string> LEGACY_TYPES;
@@ -261,6 +269,16 @@ public:
 
     bool WriteActiveScriptPubKeyMan(uint8_t type, const uint256& id, bool internal);
     bool EraseActiveScriptPubKeyMan(uint8_t type, bool internal);
+
+    // Quantum key methods
+    bool WriteQuantumKey(const CKeyID& keyid, const std::vector<unsigned char>& privkey, const CKeyMetadata& meta);
+    bool WriteCryptedQuantumKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret, const CKeyMetadata& meta);
+    bool WriteQuantumPubKey(const CKeyID& keyid, const std::vector<unsigned char>& pubkey);
+    bool WriteQuantumScript(const CScriptID& scriptid, uint8_t type);
+    bool EraseQuantumKey(const CKeyID& keyid);
+    bool EraseQuantumPubKey(const CKeyID& keyid);
+    bool EraseQuantumScript(const CScriptID& scriptid);
+    bool WriteQuantumScriptPubKeyMan(const uint256& id, uint8_t scheme_type);
 
     DBErrors LoadWallet(CWallet* pwallet);
 

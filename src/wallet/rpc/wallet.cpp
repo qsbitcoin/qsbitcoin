@@ -358,6 +358,7 @@ static RPCHelpMan createwallet()
             {"descriptors", RPCArg::Type::BOOL, RPCArg::Default{true}, "If set, must be \"true\""},
             {"load_on_startup", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Save wallet name to persistent settings and load on startup. True to add wallet to startup list, false to remove, null to leave unchanged."},
             {"external_signer", RPCArg::Type::BOOL, RPCArg::Default{false}, "Use an external signer such as a hardware wallet. Requires -signer to be configured. Wallet creation will fail if keys cannot be fetched. Requires disable_private_keys and descriptors set to true."},
+            {"quantum", RPCArg::Type::BOOL, RPCArg::Default{false}, "Create a wallet with quantum-safe signature support. Enables generation and use of ML-DSA and SLH-DSA addresses."},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -410,6 +411,11 @@ static RPCHelpMan createwallet()
 #else
         throw JSONRPCError(RPC_WALLET_ERROR, "Compiled without external signing support (required for external signing)");
 #endif
+    }
+    
+    if (!request.params[8].isNull() && request.params[8].get_bool()) {
+        flags |= WALLET_FLAG_QUANTUM;
+        LogPrintf("createwallet: Setting WALLET_FLAG_QUANTUM, flags now = %llu\n", (unsigned long long)flags);
     }
 
     DatabaseOptions options;

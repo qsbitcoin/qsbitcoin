@@ -11,6 +11,7 @@
 #include <key_io.h>
 #include <protocol.h>
 #include <script/script.h>
+#include <script/solver.h>
 #include <serialize.h>
 #include <sync.h>
 #include <util/bip32.h>
@@ -60,6 +61,12 @@ const std::string WALLETDESCRIPTORCKEY{"walletdescriptorckey"};
 const std::string WALLETDESCRIPTORKEY{"walletdescriptorkey"};
 const std::string WATCHMETA{"watchmeta"};
 const std::string WATCHS{"watchs"};
+const std::string QUANTUM_KEY{"qkey"};
+const std::string QUANTUM_CRYPTED_KEY{"qckey"};
+const std::string QUANTUM_PUBKEY{"qpubkey"};
+const std::string QUANTUM_KEYMETA{"qkeymeta"};
+const std::string QUANTUM_SCRIPT{"qscript"};
+const std::string QUANTUM_SPKM{"qspkm"};
 const std::unordered_set<std::string> LEGACY_TYPES{CRYPTED_KEY, CSCRIPT, DEFAULTKEY, HDCHAIN, KEYMETA, KEY, OLD_KEY, POOL, WATCHMETA, WATCHS};
 } // namespace DBKeys
 
@@ -1319,6 +1326,76 @@ void WalletBatch::RegisterTxnListener(const DbTxnListener& l)
 {
     assert(m_batch->HasActiveTxn());
     m_txn_listeners.emplace_back(l);
+}
+
+bool WalletBatch::WriteQuantumKey(const CKeyID& keyid, const std::vector<unsigned char>& privkey, const CKeyMetadata& meta)
+{
+    if (!WriteIC(std::make_pair(DBKeys::QUANTUM_KEYMETA, keyid), meta, false)) {
+        return false;
+    }
+    
+    // Hash pubkey/privkey to accelerate wallet load
+    uint256 checksum = Hash(privkey);
+    
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_KEY, keyid), std::make_pair(privkey, checksum), false);
+}
+
+bool WalletBatch::WriteCryptedQuantumKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret, const CKeyMetadata& meta)
+{
+    if (!WriteIC(std::make_pair(DBKeys::QUANTUM_KEYMETA, keyid), meta, true)) {
+        return false;
+    }
+    
+    // Compute a checksum of the encrypted key
+    uint256 checksum = Hash(vchCryptedSecret);
+    
+    const auto key = std::make_pair(DBKeys::QUANTUM_CRYPTED_KEY, keyid);
+    if (!WriteIC(key, std::make_pair(vchCryptedSecret, checksum), false)) {
+        // It may already exist, so try writing just the checksum
+        std::vector<unsigned char> val;
+        if (!m_batch->Read(key, val)) {
+            return false;
+        }
+        if (!WriteIC(key, std::make_pair(val, checksum), true)) {
+            return false;
+        }
+    }
+    EraseIC(std::make_pair(DBKeys::QUANTUM_KEY, keyid));
+    return true;
+}
+
+bool WalletBatch::WriteQuantumPubKey(const CKeyID& keyid, const std::vector<unsigned char>& pubkey)
+{
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_PUBKEY, keyid), pubkey);
+}
+
+bool WalletBatch::WriteQuantumScript(const CScriptID& scriptid, uint8_t type)
+{
+    // Store raw bytes of CScriptID
+    std::vector<unsigned char> idBytes(scriptid.begin(), scriptid.end());
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_SCRIPT, idBytes), type);
+}
+
+bool WalletBatch::EraseQuantumKey(const CKeyID& keyid)
+{
+    return EraseIC(std::make_pair(DBKeys::QUANTUM_KEY, keyid));
+}
+
+bool WalletBatch::EraseQuantumPubKey(const CKeyID& keyid)
+{
+    return EraseIC(std::make_pair(DBKeys::QUANTUM_PUBKEY, keyid));
+}
+
+bool WalletBatch::EraseQuantumScript(const CScriptID& scriptid)
+{
+    // Store raw bytes of CScriptID
+    std::vector<unsigned char> idBytes(scriptid.begin(), scriptid.end());
+    return EraseIC(std::make_pair(DBKeys::QUANTUM_SCRIPT, idBytes));
+}
+
+bool WalletBatch::WriteQuantumScriptPubKeyMan(const uint256& id, uint8_t scheme_type)
+{
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_SPKM, id), scheme_type);
 }
 
 std::unique_ptr<WalletDatabase> MakeDatabase(const fs::path& path, const DatabaseOptions& options, DatabaseStatus& status, bilingual_str& error)

@@ -13,9 +13,9 @@
 namespace wallet {
 
 // Import quantum types into wallet namespace for convenience
-using quantum::CQuantumKey;
-using quantum::CQuantumPubKey;
-using quantum::QuantumAddressType;
+using ::quantum::CQuantumKey;
+using ::quantum::CQuantumPubKey;
+using ::quantum::QuantumAddressType;
 
 /**
  * QuantumScriptPubKeyMan manages quantum signature keys for the wallet.
@@ -29,6 +29,9 @@ class QuantumScriptPubKeyMan : public ScriptPubKeyMan
 private:
     //! Map from CKeyID to quantum private keys (using unique_ptr due to non-copyable CQuantumKey)
     std::map<CKeyID, std::unique_ptr<CQuantumKey>> m_quantum_keys GUARDED_BY(cs_key_man);
+    
+    //! Map from CKeyID to encrypted quantum private keys
+    std::map<CKeyID, std::vector<unsigned char>> m_encrypted_keys GUARDED_BY(cs_key_man);
     
     //! Map from CKeyID to quantum public keys
     std::map<CKeyID, CQuantumPubKey> m_quantum_pubkeys GUARDED_BY(cs_key_man);
@@ -71,6 +74,7 @@ public:
     void KeepDestination(int64_t index, const OutputType& type) override;
     void ReturnDestination(int64_t index, bool internal, const CTxDestination& addr) override;
     bool TopUp(unsigned int size = 0) override;
+    unsigned int GetKeyPoolSize() const override;
     
     // Signing functionality
     bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const override;

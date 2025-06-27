@@ -199,17 +199,33 @@ target_link_libraries(bitcoind PRIVATE oqs)
 12. **Fee Estimation RPC** - Added estimatequantumfee and estimatequantumtxfee commands
 13. **Wallet Backend** - QuantumScriptPubKeyMan for quantum key management
 14. **Transaction Signing** - Basic quantum signature support in wallet
+15. **Wallet RPC Commands** - All quantum RPC commands implemented and tested
+16. **Quantum Message Signing** - signmessagewithscheme fully functional
+17. **Wallet Encryption** - Full encryption support for quantum keys with proper key derivation
+
+### 🟢 Recently Completed (June 27, 2025)
+1. **Quantum Key Encryption** - EncryptQuantumKey/DecryptQuantumKey functions implemented
+2. **Wallet Encryption Integration** - QuantumScriptPubKeyMan::Encrypt/CheckDecryptionKey
+3. **Encryption Tests** - Comprehensive test suite for quantum key encryption
+4. **Key Generation RPC** - getnewquantumaddress command fully functional
+5. **QuantumScriptPubKeyMan Implementation** - Complete key management with keypool support
+6. **Quantum Wallet Tests** - Comprehensive test suite with 9 test cases all passing
+7. **Coin Selection for Quantum Addresses** - CalculateMaximumSignedInputSize properly handles quantum scripts
+
+### 🟢 Recently Completed (June 27, 2025 - Update 2)
+1. **Database Persistence** - QuantumScriptPubKeyMan now saves quantum keys to wallet database
+   - Added WriteQuantumKey/WriteCryptedQuantumKey/WriteQuantumPubKey/WriteQuantumScript methods
+   - Integrated with WalletBatch for atomic database operations
+   - Keys are persisted during generation and encryption operations
 
 ### 🟡 In Progress
-1. **Wallet RPC Commands** - User-facing commands for quantum operations
-2. **Key Encryption** - Wallet encryption for quantum keys
-3. **Database Persistence** - Saving quantum keys to wallet database
+1. **Core Implementation Testing & Bug Fixes** - Focus on making existing quantum functionality robust
+2. **Key Migration Utilities** - Tools for migrating from ECDSA to quantum keys (LOW PRIORITY - deferred until core is solid)
 
 ### 🔴 Not Started
-1. **Network Protocol** - May not need changes
-2. **Migration Tools** - Wallet migration utilities
-3. **Full Integration Testing** - End-to-end testing on testnet
-4. **Mempool Updates** - Quantum-specific mempool handling
+1. **Network Protocol** - May not need changes (analysis shows standard protocol handles quantum transactions)
+2. **Full Integration Testing** - End-to-end testing on testnet
+3. **Mempool Updates** - May not need quantum-specific changes (standard mempool handles larger transactions)
 
 ## Security Model
 
@@ -224,7 +240,7 @@ target_link_libraries(bitcoind PRIVATE oqs)
 |-------|----------|-------------|
 | Repository Setup | 1 week | Git configured, fork established |
 | Integration | 2 months | liboqs integrated, basic signing works |
-| Wallet/Address | 2 months | Can create/spend quantum addresses |
+| Wallet/Address | 2 months | Can create/spend quantum addresses ✅ (Basic functionality complete) |
 | Consensus | 2 months | Soft fork ready for testnet |
 | Testing | 3 months | Mainnet ready |
 
@@ -261,6 +277,10 @@ target_link_libraries(bitcoind PRIVATE oqs)
 3. **Transaction Size** - ML-DSA signatures are ~3.3KB, SLH-DSA are ~49KB - significant impact on block space
 4. **Dynamic Signature Support** - Using varint encoding for signature/pubkey lengths enables future algorithm additions without consensus changes
 5. **Weight Calculation** - Transaction weight formula needs adjustment for large signatures to maintain fee proportionality
+6. **Quantum Key Encryption** - Standard AES-256-CBC encryption works for quantum keys; use pubkey hash as IV for deterministic encryption
+7. **Namespace Conflicts** - Global ::quantum namespace required to avoid conflicts with wallet namespace in crypter.h
+8. **Key Storage** - Encrypted keys stored separately from plaintext; on-demand decryption for signing operations
+9. **Coin Selection** - Quantum input size calculation must precede descriptor-based calculation; quantum scripts don't need SigningProvider
 
 ### Next Critical Steps
 1. **Activation Heights** - Set testnet/mainnet activation parameters for soft fork
@@ -279,4 +299,4 @@ This plan is a **living document** that will be updated throughout the developme
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
 *Last Updated: June 27, 2025*  
-*Version: 1.3*
+*Version: 1.7* - Implemented database persistence for quantum keys in wallet

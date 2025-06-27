@@ -18,6 +18,8 @@
 #include <crypto/quantum_key.h>
 #include <quantum_address.h>
 #include <script/quantum_signature.h>
+#include <common/signmessage.h>
+#include <util/strencodings.h>
 
 #include <univalue.h>
 
@@ -311,11 +313,75 @@ RPCHelpMan signmessagewithscheme()
                 scheme_str = request.params[2].get_str();
             }
 
-            UniValue ret(UniValue::VOBJ);
+            // Get the private key for this address
+            const PKHash* pkhash = std::get_if<PKHash>(&dest);
+            if (!pkhash) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address does not refer to a key");
+            }
+
+            // Determine which scheme to use
+            ::quantum::SignatureSchemeID scheme_id = ::quantum::SCHEME_ECDSA;
+            std::string actual_algo = "ecdsa";
             
-            // For now, return a placeholder - full implementation would sign with the appropriate scheme
-            ret.pushKV("signature", "PlaceholderQuantumSignature");
-            ret.pushKV("algorithm", scheme_str == "auto" ? "ml-dsa" : scheme_str);
+            // Check if it's a quantum address
+            if (strAddress.length() > 2 && strAddress[0] == 'Q') {
+                if (strAddress.substr(0, 2) == "Q1") {
+                    scheme_id = ::quantum::SCHEME_ML_DSA_65;
+                    actual_algo = "ml-dsa";
+                } else if (strAddress.substr(0, 2) == "Q2") {
+                    scheme_id = ::quantum::SCHEME_SLH_DSA_192F;
+                    actual_algo = "slh-dsa";
+                }
+            }
+            
+            // Override with explicit scheme if provided
+            if (scheme_str != "auto") {
+                if (scheme_str == "ecdsa") {
+                    scheme_id = ::quantum::SCHEME_ECDSA;
+                    actual_algo = "ecdsa";
+                } else if (scheme_str == "ml-dsa") {
+                    scheme_id = ::quantum::SCHEME_ML_DSA_65;
+                    actual_algo = "ml-dsa";
+                } else if (scheme_str == "slh-dsa") {
+                    scheme_id = ::quantum::SCHEME_SLH_DSA_192F;
+                    actual_algo = "slh-dsa";
+                } else {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Unknown signature scheme '%s'. Use 'ecdsa', 'ml-dsa', 'slh-dsa', or 'auto'.", scheme_str));
+                }
+            }
+            
+            // Try to sign based on the scheme
+            std::string signature;
+            if (scheme_id == ::quantum::SCHEME_ECDSA) {
+                // Use standard ECDSA signing
+                SigningResult res = pwallet->SignMessage(strMessage, *pkhash, signature);
+                if (res != SigningResult::OK) {
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, SigningResultString(res));
+                }
+            } else {
+                // Use quantum signing
+                auto spk_managers = pwallet->GetAllScriptPubKeyMans();
+                bool was_signed = false;
+                
+                for (auto spkm : spk_managers) {
+                    QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
+                    if (quantum_spkm) {
+                        SigningResult res = quantum_spkm->SignMessage(strMessage, *pkhash, signature);
+                        if (res == SigningResult::OK) {
+                            was_signed = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!was_signed) {
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key not available for quantum signing");
+                }
+            }
+            
+            UniValue ret(UniValue::VOBJ);
+            ret.pushKV("signature", signature);
+            ret.pushKV("algorithm", actual_algo);
             
             return ret;
         },

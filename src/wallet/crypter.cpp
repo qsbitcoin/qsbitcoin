@@ -6,6 +6,7 @@
 
 #include <common/system.h>
 #include <crypto/aes.h>
+#include <crypto/quantum_key.h>
 #include <crypto/sha512.h>
 
 #include <type_traits>
@@ -142,5 +143,55 @@ bool DecryptKey(const CKeyingMaterial& master_key, const std::span<const unsigne
 
     key.Set(secret.begin(), secret.end(), pub_key.IsCompressed());
     return key.VerifyPubKey(pub_key);
+}
+
+bool EncryptQuantumKey(const CKeyingMaterial& master_key, const ::quantum::CQuantumKey& key, const ::quantum::CQuantumPubKey& pubkey, std::vector<unsigned char>& crypted_key)
+{
+    // Get the private key data
+    ::quantum::secure_vector privkey_data = key.GetPrivKeyData();
+    if (privkey_data.empty()) {
+        return false;
+    }
+    
+    // Convert to CKeyingMaterial
+    CKeyingMaterial plaintext(privkey_data.begin(), privkey_data.end());
+    
+    // Use pubkey hash as IV
+    CKeyID keyid = pubkey.GetID();
+    uint256 iv = Hash(keyid);
+    
+    // Encrypt the key
+    bool result = EncryptSecret(master_key, plaintext, iv, crypted_key);
+    
+    // Clear sensitive data
+    memory_cleanse(plaintext.data(), plaintext.size());
+    memory_cleanse(privkey_data.data(), privkey_data.size());
+    
+    return result;
+}
+
+bool DecryptQuantumKey(const CKeyingMaterial& master_key, std::span<const unsigned char> crypted_key, const ::quantum::CQuantumPubKey& pubkey, ::quantum::CQuantumKey& key)
+{
+    // Use pubkey hash as IV
+    CKeyID keyid = pubkey.GetID();
+    uint256 iv = Hash(keyid);
+    
+    // Decrypt the key
+    CKeyingMaterial plaintext;
+    if (!DecryptSecret(master_key, crypted_key, iv, plaintext)) {
+        return false;
+    }
+    
+    // Convert to secure_vector
+    ::quantum::secure_vector privkey_data(plaintext.begin(), plaintext.end());
+    
+    // Load the key
+    bool result = key.Load(privkey_data, pubkey);
+    
+    // Clear sensitive data
+    memory_cleanse(plaintext.data(), plaintext.size());
+    memory_cleanse(privkey_data.data(), privkey_data.size());
+    
+    return result;
 }
 } // namespace wallet

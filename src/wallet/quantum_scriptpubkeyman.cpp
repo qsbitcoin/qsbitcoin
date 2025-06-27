@@ -3,125 +3,102 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/quantum_scriptpubkeyman.h>
-#include <common/signmessage.h>
+#include <wallet/walletdb.h>
 #include <key_io.h>
 #include <logging.h>
 #include <script/script.h>
-#include <script/sign.h>
-#include <script/signingprovider.h>
 #include <script/solver.h>
-#include <util/strencodings.h>
-#include <util/time.h>
+#include <script/quantum_signature.h>
+#include <util/bip32.h>
 #include <util/translation.h>
-#include <wallet/walletdb.h>
+#include <common/signmessage.h>
+#include <hash.h>
+#include <wallet/crypter.h>
+#include <streams.h>
 
 namespace wallet {
-
-// Import quantum types
-using quantum::CQuantumKey;
-using quantum::CQuantumPubKey;
-using quantum::QuantumAddressType;
-
-// Helper functions for quantum addresses
-static bool ExtractQuantumDestination(const CScript& script, CTxDestination& dest, QuantumAddressType& addr_type)
-{
-    // Simple implementation - just check for P2PKH pattern
-    std::vector<std::vector<unsigned char>> vSolutions;
-    TxoutType whichType = Solver(script, vSolutions);
-    
-    if (whichType == TxoutType::PUBKEYHASH && vSolutions.size() > 0) {
-        PKHash hash;
-        std::copy(vSolutions[0].begin(), vSolutions[0].end(), hash.begin());
-        dest = hash;
-        addr_type = QuantumAddressType::P2QPKH_ML_DSA; // Default
-        return true;
-    }
-    return false;
-}
-
-static CScript GetScriptForQuantumDestination(const CQuantumPubKey& pubkey, QuantumAddressType addr_type)
-{
-    // Simple P2PKH-style script
-    CKeyID keyid = pubkey.GetID();
-    return CScript() << OP_DUP << OP_HASH160 << ToByteVector(keyid) << OP_EQUALVERIFY << OP_CHECKSIG;
-}
-
-static CScript CreateQuantumScriptSig(const std::vector<unsigned char>& sig, const CQuantumPubKey& pubkey, QuantumAddressType addr_type)
-{
-    // Create script sig with quantum signature format
-    // For now, just use the raw key data
-    const std::vector<unsigned char>& pubkey_data = pubkey.GetKeyData();
-    return CScript() << sig << pubkey_data;
-}
 
 util::Result<CTxDestination> QuantumScriptPubKeyMan::GetNewDestination(const OutputType type)
 {
     LOCK(cs_key_man);
     
     // Top up keypool if needed
-    if (!TopUp()) {
-        return util::Error{Untranslated("Failed to top up keypool")};
+    TopUp();
+    
+    // Check if we have keys in the pool
+    if (m_keypool.empty()) {
+        return util::Error{strprintf(_("Keypool ran out, please call keypoolrefill"))};
     }
     
     // Get a key from the keypool
-    if (m_keypool.empty()) {
-        return util::Error{Untranslated("Keypool is empty")};
-    }
-    
     auto it = m_keypool.begin();
     CKeyID keyid = *it;
     m_keypool.erase(it);
+    
+    // Mark as used
     m_used_keys.insert(keyid);
     
     // Get the public key
     CQuantumPubKey pubkey;
     if (!GetQuantumPubKey(keyid, pubkey)) {
-        return util::Error{Untranslated("Failed to get quantum public key")};
+        return util::Error{strprintf(_("Public key not found"))};
     }
     
-    // Create destination based on address type
-    CTxDestination dest;
-    switch (m_address_type) {
-        case QuantumAddressType::P2QPKH_ML_DSA:
-        case QuantumAddressType::P2QPKH_SLH_DSA:
-            dest = PKHash(keyid);
-            break;
-        case QuantumAddressType::P2QSH:
-            // For P2QSH, we create a script containing the public key
-            CScript script = GetScriptForQuantumDestination(pubkey, m_address_type);
-            CScriptID scriptid(script);
-            WalletBatch batch(m_storage.GetDatabase());
-            WriteQuantumScript(scriptid, m_address_type, batch);
-            dest = ScriptHash(scriptid);
-            break;
-    }
+    // Get a batch for database operations
+    WalletBatch batch(m_storage.GetDatabase());
     
-    return dest;
+    // Return the destination
+    if (m_address_type == QuantumAddressType::P2QSH) {
+        // Create P2QSH script
+        ::quantum::KeyType keyType = (m_address_type == QuantumAddressType::P2QPKH_ML_DSA) ? 
+            ::quantum::KeyType::ML_DSA_65 : ::quantum::KeyType::SLH_DSA_192F;
+        uint256 hash = ::quantum::QuantumHash256(pubkey.GetKeyData());
+        CScript script = ::quantum::CreateP2QPKHScript(hash, keyType);
+        CScriptID scriptid(script);
+        m_quantum_scripts[scriptid] = m_address_type;
+        
+        // Persist script to database
+        if (!WriteQuantumScript(scriptid, m_address_type, batch)) {
+            return util::Error{strprintf(_("Failed to write quantum script"))};
+        }
+        
+        return util::Result<CTxDestination>(ScriptHash(scriptid));
+    } else {
+        // P2QPKH - return PKHash directly
+        return util::Result<CTxDestination>(PKHash(keyid));
+    }
 }
 
 isminetype QuantumScriptPubKeyMan::IsMine(const CScript& script) const
 {
     LOCK(cs_key_man);
     
-    // Check if this is a quantum script
-    QuantumAddressType addr_type;
-    CTxDestination dest;
-    if (!ExtractQuantumDestination(script, dest, addr_type)) {
-        return ISMINE_NO;
-    }
+    std::vector<std::vector<unsigned char>> solutions;
+    TxoutType type = Solver(script, solutions);
     
-    // Check if we have the key
-    if (auto* pkhash = std::get_if<PKHash>(&dest)) {
-        CKeyID keyid(ToKeyID(*pkhash));
-        if (HaveQuantumKey(keyid)) {
-            return ISMINE_SPENDABLE;
+    switch (type) {
+        case TxoutType::PUBKEYHASH:
+        {
+            if (solutions.size() == 1 && solutions[0].size() == 20) {
+                CKeyID keyid = CKeyID(uint160(solutions[0]));
+                if (HaveQuantumKey(keyid)) {
+                    return ISMINE_SPENDABLE;
+                }
+            }
+            break;
         }
-    } else if (auto* scripthash = std::get_if<ScriptHash>(&dest)) {
-        CScriptID scriptid{uint160(*scripthash)};
-        auto it = m_quantum_scripts.find(scriptid);
-        if (it != m_quantum_scripts.end()) {
-            return ISMINE_SPENDABLE;
+        case TxoutType::SCRIPTHASH:
+        {
+            if (solutions.size() == 1 && solutions[0].size() == 20) {
+                CScriptID scriptid = CScriptID(uint160(solutions[0]));
+                if (m_quantum_scripts.count(scriptid) > 0) {
+                    return ISMINE_SPENDABLE;
+                }
+            }
+            break;
         }
+        default:
+            break;
     }
     
     return ISMINE_NO;
@@ -136,11 +113,15 @@ bool QuantumScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_ke
     }
     
     // Try to decrypt a key to verify the master key
-    for (const auto& [keyid, encrypted_key] : m_quantum_keys) {
-        CQuantumKey key;
-        // TODO: Implement decryption once we have encrypted key storage
-        // For now, assume keys are not encrypted
-        return true;
+    for (const auto& [keyid, encrypted_key] : m_encrypted_keys) {
+        CQuantumPubKey pubkey;
+        if (GetQuantumPubKey(keyid, pubkey)) {
+            CQuantumKey decrypted_key;
+            if (::wallet::DecryptQuantumKey(master_key, encrypted_key, pubkey, decrypted_key)) {
+                // Successfully decrypted - master key is correct
+                return true;
+            }
+        }
     }
     
     return false;
@@ -154,166 +135,315 @@ bool QuantumScriptPubKeyMan::Encrypt(const CKeyingMaterial& master_key, WalletBa
         return false;
     }
     
-    m_master_key = master_key;
-    m_encrypted = true;
+    // Encrypt all quantum keys
+    for (const auto& [keyid, key] : m_quantum_keys) {
+        if (!key) continue;
+        
+        std::vector<unsigned char> encrypted_key;
+        CQuantumPubKey pubkey = key->GetPubKey();
+        if (!::wallet::EncryptQuantumKey(master_key, *key, pubkey, encrypted_key)) {
+            return false;
+        }
+        
+        m_encrypted_keys[keyid] = encrypted_key;
+        
+        if (batch) {
+            // Write encrypted key to database
+            CKeyMetadata meta(GetTime());
+            if (!batch->WriteCryptedQuantumKey(keyid, encrypted_key, meta)) {
+                return false;
+            }
+        }
+    }
     
-    // TODO: Implement key encryption
-    // For now, we'll just mark as encrypted without actually encrypting
+    // Clear unencrypted keys
+    m_quantum_keys.clear();
+    m_encrypted = true;
+    m_master_key = master_key;
     
     return true;
+}
+
+util::Result<CTxDestination> QuantumScriptPubKeyMan::GetReservedDestination(const OutputType type, bool internal, int64_t& index)
+{
+    LOCK(cs_key_man);
+    
+    // Top up keypool if needed
+    TopUp();
+    
+    if (m_keypool.empty()) {
+        return util::Error{strprintf(_("Keypool ran out, please call keypoolrefill"))};
+    }
+    
+    // Get a key from the pool
+    auto it = m_keypool.begin();
+    CKeyID keyid = *it;
+    m_keypool.erase(it);
+    
+    // Use the keypool size as index
+    index = m_keypool.size();
+    
+    // Mark as used
+    m_used_keys.insert(keyid);
+    
+    // Get a batch for database operations
+    WalletBatch batch(m_storage.GetDatabase());
+    
+    // Return appropriate destination
+    if (m_address_type == QuantumAddressType::P2QSH) {
+        CQuantumPubKey pubkey;
+        if (!GetQuantumPubKey(keyid, pubkey)) {
+            return util::Error{strprintf(_("Public key not found"))};
+        }
+        ::quantum::KeyType keyType = (m_address_type == QuantumAddressType::P2QPKH_ML_DSA) ? 
+            ::quantum::KeyType::ML_DSA_65 : ::quantum::KeyType::SLH_DSA_192F;
+        uint256 hash = ::quantum::QuantumHash256(pubkey.GetKeyData());
+        CScript script = ::quantum::CreateP2QPKHScript(hash, keyType);
+        CScriptID scriptid(script);
+        
+        // Store and persist script
+        m_quantum_scripts[scriptid] = m_address_type;
+        if (!WriteQuantumScript(scriptid, m_address_type, batch)) {
+            return util::Error{strprintf(_("Failed to write quantum script"))};
+        }
+        
+        return util::Result<CTxDestination>(ScriptHash(scriptid));
+    } else {
+        return util::Result<CTxDestination>(PKHash(keyid));
+    }
+}
+
+void QuantumScriptPubKeyMan::KeepDestination(int64_t index, const OutputType& type)
+{
+    // Key has been used, nothing special to do
+}
+
+void QuantumScriptPubKeyMan::ReturnDestination(int64_t index, bool internal, const CTxDestination& addr)
+{
+    LOCK(cs_key_man);
+    
+    // Try to return key to pool
+    const PKHash* pkhash = std::get_if<PKHash>(&addr);
+    if (pkhash) {
+        CKeyID keyid(static_cast<uint160>(*pkhash));
+        if (m_used_keys.count(keyid) > 0) {
+            m_used_keys.erase(keyid);
+            m_keypool.insert(keyid);
+        }
+    }
 }
 
 bool QuantumScriptPubKeyMan::TopUp(unsigned int size)
 {
     LOCK(cs_key_man);
     
-    unsigned int target_size = size > 0 ? size : DEFAULT_KEYPOOL_SIZE;
-    unsigned int current_size = m_keypool.size();
+    unsigned int target_size = size > 0 ? size : 100; // Default keypool size
     
-    if (current_size >= target_size) {
-        return true;
-    }
+    LogPrintf("QuantumScriptPubKeyMan::TopUp: Starting keypool top-up, current size=%u, target size=%u, address_type=%d\n", 
+              m_keypool.size(), target_size, static_cast<int>(m_address_type));
     
-    WalletBatch batch(m_storage.GetDatabase());
-    
-    // Generate new keys
-    for (unsigned int i = current_size; i < target_size; ++i) {
+    while (m_keypool.size() < target_size) {
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Generating key %u/%u\n", m_keypool.size() + 1, target_size);
+        
         // Generate new quantum key
         auto key = std::make_unique<CQuantumKey>();
-        quantum::KeyType keyType = (m_address_type == QuantumAddressType::P2QPKH_SLH_DSA) ? 
-                                   quantum::KeyType::SLH_DSA_192F : quantum::KeyType::ML_DSA_65;
-        key->MakeNewKey(keyType);
+        
+        ::quantum::KeyType key_type;
+        switch (m_address_type) {
+            case QuantumAddressType::P2QPKH_ML_DSA:
+                key_type = ::quantum::KeyType::ML_DSA_65;
+                break;
+            case QuantumAddressType::P2QPKH_SLH_DSA:
+                key_type = ::quantum::KeyType::SLH_DSA_192F;
+                break;
+            default:
+                key_type = ::quantum::KeyType::ML_DSA_65;
+                break;
+        }
+        
+        key->MakeNewKey(key_type);
+        
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Key generated, checking validity\n");
+        
         if (!key->IsValid()) {
-            LogPrintf("QuantumScriptPubKeyMan::TopUp: Failed to generate quantum key\n");
+            LogPrintf("QuantumScriptPubKeyMan::TopUp: Key generation failed - invalid key\n");
             return false;
         }
         
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Getting public key\n");
         CQuantumPubKey pubkey = key->GetPubKey();
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Getting key ID\n");
         CKeyID keyid = pubkey.GetID();
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Key ID obtained: %s\n", keyid.ToString());
         
-        // Write to database first
-        if (!WriteQuantumKey(keyid, *key, batch) || !WriteQuantumPubKey(keyid, pubkey, batch)) {
-            LogPrintf("QuantumScriptPubKeyMan::TopUp: Failed to write quantum key to database\n");
+        // Add to internal storage
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Adding to internal storage\n");
+        m_quantum_pubkeys[keyid] = pubkey;
+        
+        // Get a batch for database operations
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Getting wallet batch\n");
+        WalletBatch batch(m_storage.GetDatabase());
+        LogPrintf("QuantumScriptPubKeyMan::TopUp: Wallet batch obtained\n");
+        
+        // Write public key to database
+        if (!WriteQuantumPubKey(keyid, pubkey, batch)) {
             return false;
         }
         
-        // Store the key
-        if (!AddQuantumKey(std::move(key), pubkey)) {
-            LogPrintf("QuantumScriptPubKeyMan::TopUp: Failed to add quantum key\n");
-            return false;
+        if (m_encrypted && !m_master_key.empty()) {
+            // Encrypt the key
+            std::vector<unsigned char> encrypted_key;
+            if (!::wallet::EncryptQuantumKey(m_master_key, *key, pubkey, encrypted_key)) {
+                return false;
+            }
+            m_encrypted_keys[keyid] = encrypted_key;
+            
+            // Write encrypted key to database
+            CKeyMetadata meta(GetTime());
+            if (!batch.WriteCryptedQuantumKey(keyid, encrypted_key, meta)) {
+                return false;
+            }
+        } else {
+            // Write unencrypted key to database
+            if (!WriteQuantumKey(keyid, *key, batch)) {
+                return false;
+            }
+            
+            // Store unencrypted in memory
+            m_quantum_keys[keyid] = std::move(key);
         }
         
         // Add to keypool
         m_keypool.insert(keyid);
     }
     
-    LogPrintf("QuantumScriptPubKeyMan::TopUp: Added %u keys to keypool\n", target_size - current_size);
     return true;
+}
+
+unsigned int QuantumScriptPubKeyMan::GetKeyPoolSize() const
+{
+    LOCK(cs_key_man);
+    return m_keypool.size();
 }
 
 bool QuantumScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
 {
     LOCK(cs_key_man);
     
-    bool any_signed = false;
-    
+    // For each input
     for (unsigned int i = 0; i < tx.vin.size(); ++i) {
-        auto it = coins.find(tx.vin[i].prevout);
-        if (it == coins.end() || it->second.IsSpent()) {
+        const CTxIn& txin = tx.vin[i];
+        
+        auto it = coins.find(txin.prevout);
+        if (it == coins.end()) {
             continue;
         }
         
-        const CTxOut& utxo = it->second.out;
-        SignatureData sigdata;
+        const Coin& coin = it->second;
+        const CTxOut& txout = coin.out;
         
-        // Check if we can sign this input
-        if (!CanProvideImpl(utxo.scriptPubKey, sigdata)) {
+        // Check if this is ours
+        if (IsMine(txout.scriptPubKey) == ISMINE_NO) {
             continue;
         }
         
-        // Get the quantum key
-        QuantumAddressType addr_type;
-        CTxDestination dest;
-        if (!ExtractQuantumDestination(utxo.scriptPubKey, dest, addr_type)) {
-            continue;
-        }
+        // Extract the public key hash
+        std::vector<std::vector<unsigned char>> solutions;
+        TxoutType type = Solver(txout.scriptPubKey, solutions);
         
-        CKeyID keyid;
-        if (auto* pkhash = std::get_if<PKHash>(&dest)) {
-            keyid = ToKeyID(*pkhash);
-        } else {
-            continue; // P2QSH not yet implemented for signing
+        if (type == TxoutType::PUBKEYHASH && solutions.size() == 1) {
+            CKeyID keyid = CKeyID(uint160(solutions[0]));
+            
+            // Get the quantum key
+            const CQuantumKey* key = nullptr;
+            if (!GetQuantumKey(keyid, &key) || !key) {
+                input_errors[i] = _("Private key not available");
+                continue;
+            }
+            
+            // Create signature
+            uint256 hash = SignatureHash(txout.scriptPubKey, tx, i, sighash, txout.nValue, SigVersion::BASE);
+            std::vector<unsigned char> sig;
+            
+            if (!key->Sign(hash, sig)) {
+                input_errors[i] = _("Signing failed");
+                continue;
+            }
+            
+            // Add sighash type
+            sig.push_back(static_cast<unsigned char>(sighash));
+            
+            // Get public key
+            CQuantumPubKey pubkey;
+            if (!GetQuantumPubKey(keyid, pubkey)) {
+                input_errors[i] = _("Public key not found");
+                continue;
+            }
+            
+            // Create signature script
+            tx.vin[i].scriptSig = CScript() << sig << pubkey.GetKeyData();
         }
-        
-        const CQuantumKey* key;
-        if (!GetQuantumKey(keyid, &key)) {
-            input_errors[i] = Untranslated("Quantum key not found");
-            continue;
-        }
-        
-        // Create signature
-        uint256 hash = SignatureHash(utxo.scriptPubKey, tx, i, sighash, utxo.nValue, SigVersion::BASE);
-        std::vector<unsigned char> sig;
-        if (!key->Sign(hash, sig)) {
-            input_errors[i] = Untranslated("Failed to create quantum signature");
-            continue;
-        }
-        
-        // Add signature to scriptSig
-        CQuantumPubKey pubkey = key->GetPubKey();
-        tx.vin[i].scriptSig = CreateQuantumScriptSig(sig, pubkey, addr_type);
-        any_signed = true;
     }
     
-    return any_signed;
+    return true;
 }
 
 SigningResult QuantumScriptPubKeyMan::SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const
 {
     LOCK(cs_key_man);
     
-    CKeyID keyid(ToKeyID(pkhash));
-    const CQuantumKey* key;
-    if (!GetQuantumKey(keyid, &key)) {
+    CKeyID keyid(static_cast<uint160>(pkhash));
+    
+    const CQuantumKey* key = nullptr;
+    if (!GetQuantumKey(keyid, &key) || !key) {
         return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
     }
     
-    // Create message hash
-    uint256 hash = MessageHash(message);
+    HashWriter ss{};
+    ss << MESSAGE_MAGIC << message;
+    uint256 hash = ss.GetHash();
     
-    // Sign with quantum key
     std::vector<unsigned char> sig;
     if (!key->Sign(hash, sig)) {
         return SigningResult::SIGNING_FAILED;
     }
     
-    // Encode signature
-    str_sig = EncodeBase64(sig);
+    // Add recovery information and encode
+    CQuantumPubKey pubkey;
+    if (!GetQuantumPubKey(keyid, pubkey)) {
+        return SigningResult::SIGNING_FAILED;
+    }
+    
+    // Encode signature with public key for verification
+    DataStream ds{};
+    uint8_t scheme_id = (pubkey.GetType() == ::quantum::KeyType::ML_DSA_65) ? 
+        ::quantum::SCHEME_ML_DSA_65 : ::quantum::SCHEME_SLH_DSA_192F;
+    ds << scheme_id << sig << pubkey.GetKeyData();
+    
+    str_sig = EncodeBase64(ds);
+    
     return SigningResult::OK;
 }
 
 std::optional<common::PSBTError> QuantumScriptPubKeyMan::FillPSBT(PartiallySignedTransaction& psbt, const PrecomputedTransactionData& txdata, std::optional<int> sighash_type, bool sign, bool bip32derivs, int* n_signed, bool finalize) const
 {
     // TODO: Implement PSBT support for quantum signatures
-    return std::nullopt;
+    return common::PSBTError::UNSUPPORTED;
 }
 
 bool QuantumScriptPubKeyMan::CanProvideImpl(const CScript& script, SignatureData& sigdata) const
 {
     LOCK(cs_key_man);
     
-    QuantumAddressType addr_type;
-    CTxDestination dest;
-    if (!ExtractQuantumDestination(script, dest, addr_type)) {
-        return false;
-    }
+    std::vector<std::vector<unsigned char>> solutions;
+    TxoutType type = Solver(script, solutions);
     
-    if (auto* pkhash = std::get_if<PKHash>(&dest)) {
-        CKeyID keyid(ToKeyID(*pkhash));
+    if (type == TxoutType::PUBKEYHASH && solutions.size() == 1) {
+        CKeyID keyid = CKeyID(uint160(solutions[0]));
         return HaveQuantumKey(keyid);
-    } else if (auto* scripthash = std::get_if<ScriptHash>(&dest)) {
-        CScriptID scriptid{uint160(*scripthash)};
-        return m_quantum_scripts.find(scriptid) != m_quantum_scripts.end();
+    } else if (type == TxoutType::SCRIPTHASH && solutions.size() == 1) {
+        CScriptID scriptid = CScriptID(uint160(solutions[0]));
+        return m_quantum_scripts.count(scriptid) > 0;
     }
     
     return false;
@@ -322,39 +452,19 @@ bool QuantumScriptPubKeyMan::CanProvideImpl(const CScript& script, SignatureData
 bool QuantumScriptPubKeyMan::HavePrivateKeys() const
 {
     LOCK(cs_key_man);
-    return !m_quantum_keys.empty();
+    return !m_quantum_keys.empty() || !m_encrypted_keys.empty();
 }
 
 int64_t QuantumScriptPubKeyMan::GetTimeFirstKey() const
 {
-    LOCK(cs_key_man);
-    // Quantum keys don't have timestamps in our current implementation
-    return GetTime();
+    // Quantum keys don't have timestamps in our implementation
+    return 0;
 }
 
 std::unique_ptr<SigningProvider> QuantumScriptPubKeyMan::GetSolvingProvider(const CScript& script) const
 {
-    LOCK(cs_key_man);
-    
-    auto provider = std::make_unique<FlatSigningProvider>();
-    
-    QuantumAddressType addr_type;
-    CTxDestination dest;
-    if (!ExtractQuantumDestination(script, dest, addr_type)) {
-        return provider;
-    }
-    
-    if (auto* pkhash = std::get_if<PKHash>(&dest)) {
-        CKeyID keyid(ToKeyID(*pkhash));
-        const CQuantumKey* key;
-        CQuantumPubKey pubkey;
-        if (GetQuantumKey(keyid, &key) && GetQuantumPubKey(keyid, pubkey)) {
-            // Note: FlatSigningProvider doesn't support quantum keys yet
-            // This would need to be extended to support quantum signing
-        }
-    }
-    
-    return provider;
+    // TODO: Implement signing provider for quantum signatures
+    return nullptr;
 }
 
 bool QuantumScriptPubKeyMan::AddQuantumKey(std::unique_ptr<CQuantumKey> key, const CQuantumPubKey& pubkey)
@@ -362,8 +472,39 @@ bool QuantumScriptPubKeyMan::AddQuantumKey(std::unique_ptr<CQuantumKey> key, con
     LOCK(cs_key_man);
     
     CKeyID keyid = pubkey.GetID();
-    m_quantum_keys[keyid] = std::move(key);
+    
+    // Store public key
     m_quantum_pubkeys[keyid] = pubkey;
+    
+    // Get a batch for database operations
+    WalletBatch batch(m_storage.GetDatabase());
+    
+    // Write public key to database
+    if (!WriteQuantumPubKey(keyid, pubkey, batch)) {
+        return false;
+    }
+    
+    // Store private key (encrypted or not)
+    if (m_encrypted && !m_master_key.empty()) {
+        std::vector<unsigned char> encrypted_key;
+        if (!::wallet::EncryptQuantumKey(m_master_key, *key, pubkey, encrypted_key)) {
+            return false;
+        }
+        m_encrypted_keys[keyid] = encrypted_key;
+        
+        // Write encrypted key to database
+        CKeyMetadata meta(GetTime());
+        if (!batch.WriteCryptedQuantumKey(keyid, encrypted_key, meta)) {
+            return false;
+        }
+    } else {
+        // Write unencrypted key to database
+        if (!WriteQuantumKey(keyid, *key, batch)) {
+            return false;
+        }
+        
+        m_quantum_keys[keyid] = std::move(key);
+    }
     
     return true;
 }
@@ -372,11 +513,19 @@ bool QuantumScriptPubKeyMan::GetQuantumKey(const CKeyID& keyid, const CQuantumKe
 {
     LOCK(cs_key_man);
     
-    auto it = m_quantum_keys.find(keyid);
-    if (it != m_quantum_keys.end()) {
-        *key = it->second.get();
-        return true;
+    // If not encrypted, return from unencrypted storage
+    if (!m_encrypted) {
+        auto it = m_quantum_keys.find(keyid);
+        if (it != m_quantum_keys.end() && it->second) {
+            *key = it->second.get();
+            return true;
+        }
+        return false;
     }
+    
+    // If encrypted, we need to decrypt on demand
+    // For now, we don't support on-demand decryption in const context
+    // This would require mutable decrypted key cache
     return false;
 }
 
@@ -389,22 +538,29 @@ bool QuantumScriptPubKeyMan::GetQuantumPubKey(const CKeyID& keyid, CQuantumPubKe
         pubkey = it->second;
         return true;
     }
+    
     return false;
 }
 
 bool QuantumScriptPubKeyMan::HaveQuantumKey(const CKeyID& keyid) const
 {
     LOCK(cs_key_man);
-    return m_quantum_keys.find(keyid) != m_quantum_keys.end();
+    return m_quantum_keys.count(keyid) > 0 || m_encrypted_keys.count(keyid) > 0;
 }
 
 std::set<CKeyID> QuantumScriptPubKeyMan::GetQuantumKeys() const
 {
     LOCK(cs_key_man);
     std::set<CKeyID> keys;
-    for (const auto& [keyid, _] : m_quantum_keys) {
+    
+    for (const auto& [keyid, key] : m_quantum_keys) {
         keys.insert(keyid);
     }
+    
+    for (const auto& [keyid, encrypted] : m_encrypted_keys) {
+        keys.insert(keyid);
+    }
+    
     return keys;
 }
 
@@ -443,40 +599,35 @@ bool QuantumScriptPubKeyMan::LoadScript(const CScriptID& scriptid, QuantumAddres
 
 bool QuantumScriptPubKeyMan::WriteQuantumKey(const CKeyID& keyid, const CQuantumKey& key, WalletBatch& batch)
 {
-    // TODO: Implement database writing for quantum keys
-    // For now, just return true
-    return true;
+    // Get the private key data
+    ::quantum::secure_vector privKeyData = key.GetPrivKeyData();
+    
+    // Convert secure_vector to regular vector for storage
+    std::vector<unsigned char> keyData(privKeyData.begin(), privKeyData.end());
+    
+    // Create metadata
+    CKeyMetadata meta(GetTime());
+    
+    // Write to database
+    return batch.WriteQuantumKey(keyid, keyData, meta);
 }
 
 bool QuantumScriptPubKeyMan::WriteQuantumPubKey(const CKeyID& keyid, const CQuantumPubKey& pubkey, WalletBatch& batch)
 {
-    // TODO: Implement database writing for quantum public keys
-    // For now, just return true
-    return true;
+    // Get the raw public key data
+    std::vector<unsigned char> pubkeyData = pubkey.GetKeyData();
+    
+    // Write to database
+    return batch.WriteQuantumPubKey(keyid, pubkeyData);
 }
 
 bool QuantumScriptPubKeyMan::WriteQuantumScript(const CScriptID& scriptid, QuantumAddressType type, WalletBatch& batch)
 {
-    // TODO: Implement database writing for quantum scripts
-    // For now, just return true
-    return true;
-}
-
-util::Result<CTxDestination> QuantumScriptPubKeyMan::GetReservedDestination(const OutputType type, bool internal, int64_t& index)
-{
-    // For now, just get a new destination
-    // TODO: Implement proper reservation system
-    return GetNewDestination(type);
-}
-
-void QuantumScriptPubKeyMan::KeepDestination(int64_t index, const OutputType& type)
-{
-    // TODO: Implement destination keeping
-}
-
-void QuantumScriptPubKeyMan::ReturnDestination(int64_t index, bool internal, const CTxDestination& addr)
-{
-    // TODO: Implement destination return
+    // Convert address type to uint8_t
+    uint8_t typeValue = static_cast<uint8_t>(type);
+    
+    // Write to database
+    return batch.WriteQuantumScript(scriptid, typeValue);
 }
 
 } // namespace wallet

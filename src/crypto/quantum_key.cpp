@@ -327,12 +327,25 @@ bool CQuantumKey::Load(const secure_vector& privkey, const CQuantumPubKey& pubke
             // Store the provided public key
             m_vchPubKey = pubkey.GetKeyData();
             
-            // For quantum keys, validate the key pair
+            // For quantum keys, validate the key pair by testing sign/verify
             if (m_type == KeyType::ML_DSA_65 || m_type == KeyType::SLH_DSA_192F) {
-                // Simply accept the keys as valid - the GetPubKey() function will
-                // extract the correct public key from the private key if needed
-                m_fValid = true;
-                return true;
+                // Test that we can sign and verify with this key pair
+                // Use a fixed test hash for validation
+                uint256 test_hash = uint256::FromHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").value();
+                
+                std::vector<unsigned char> test_sig;
+                m_fValid = true; // Temporarily set valid to allow signing
+                
+                if (Sign(test_hash, test_sig)) {
+                    // Verify the signature matches
+                    if (CQuantumKey::Verify(test_hash, test_sig, pubkey)) {
+                        return true;
+                    }
+                }
+                
+                // Key pair validation failed
+                m_fValid = false;
+                return false;
             }
             
             m_fValid = true;

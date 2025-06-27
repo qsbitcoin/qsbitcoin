@@ -47,6 +47,9 @@ add_executable(test_bitcoin
   quantum_consensus_tests.cpp
   quantum_fee_tests.cpp
   quantum_rpc_tests.cpp
+  quantum_wallet_encryption_tests.cpp
+  quantum_wallet_tests.cpp
+  quantum_coinselection_tests.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
   descriptor_tests.cpp

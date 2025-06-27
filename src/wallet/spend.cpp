@@ -28,6 +28,9 @@
 #include <wallet/spend.h>
 #include <wallet/transaction.h>
 #include <wallet/wallet.h>
+#include <quantum_address.h>
+#include <script/quantum_signature.h>
+#include <wallet/quantum_scriptpubkeyman.h>
 
 #include <cmath>
 
@@ -88,10 +91,65 @@ static std::optional<int64_t> MaxInputWeight(const Descriptor& desc, const std::
     return {};
 }
 
+/** Calculate the size of a quantum signature input */
+static int CalculateQuantumInputSize(const CScript& scriptPubKey)
+{
+    ::quantum::QuantumAddressType addrType;
+    uint256 hash;
+    
+    // Check if this is a quantum address
+    if (::quantum::ExtractQuantumAddress(scriptPubKey, addrType, hash)) {
+        // Calculate the size based on address type
+        size_t sig_size = 0;
+        size_t pubkey_size = 0;
+        
+        switch (addrType) {
+            case ::quantum::QuantumAddressType::P2QPKH_ML_DSA:
+                sig_size = ::quantum::MAX_ML_DSA_65_SIG_SIZE;
+                pubkey_size = ::quantum::MAX_ML_DSA_65_PUBKEY_SIZE;
+                break;
+            case ::quantum::QuantumAddressType::P2QPKH_SLH_DSA:
+                sig_size = ::quantum::MAX_SLH_DSA_192F_SIG_SIZE;
+                pubkey_size = ::quantum::MAX_SLH_DSA_192F_PUBKEY_SIZE;
+                break;
+            case ::quantum::QuantumAddressType::P2QSH:
+                // For P2QSH, we assume worst case (SLH-DSA)
+                sig_size = ::quantum::MAX_SLH_DSA_192F_SIG_SIZE;
+                pubkey_size = ::quantum::MAX_SLH_DSA_192F_PUBKEY_SIZE;
+                break;
+            default:
+                return -1;
+        }
+        
+        // Calculate total size:
+        // prevout (36) + sequence (4) + script length (varint) + 
+        // scheme_id (1) + sig_len (varint) + signature + pubkey_len (varint) + pubkey
+        size_t total_size = 36 + 4;
+        
+        // Script size (scheme_id + sig_len + sig + pubkey_len + pubkey)
+        size_t script_size = 1 + GetSizeOfCompactSize(sig_size) + sig_size + 
+                            GetSizeOfCompactSize(pubkey_size) + pubkey_size;
+        
+        total_size += GetSizeOfCompactSize(script_size) + script_size;
+        
+        // Convert to virtual size (quantum signatures are not witness data)
+        return static_cast<int>(total_size);
+    }
+    
+    return -1;
+}
+
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoint, const SigningProvider* provider, bool can_grind_r, const CCoinControl* coin_control)
 {
-    if (!provider) return -1;
+    // First try to calculate quantum input size (doesn't need provider)
+    int quantum_size = CalculateQuantumInputSize(txout.scriptPubKey);
+    if (quantum_size > 0) {
+        return quantum_size;
+    }
 
+    // Fall back to standard descriptor-based calculation
+    if (!provider) return -1;
+    
     if (const auto desc = InferDescriptor(txout.scriptPubKey, *provider)) {
         if (const auto weight = MaxInputWeight(*desc, {}, coin_control, true, can_grind_r)) {
             return static_cast<int>(GetVirtualTransactionSize(*weight, 0, 0));

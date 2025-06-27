@@ -8,6 +8,7 @@
 #include <serialize.h>
 #include <support/allocators/secure.h>
 #include <script/signingprovider.h>
+#include <crypto/quantum_key.h>
 
 
 namespace wallet {
@@ -107,6 +108,10 @@ public:
 bool EncryptSecret(const CKeyingMaterial& vMasterKey, const CKeyingMaterial &vchPlaintext, const uint256& nIV, std::vector<unsigned char> &vchCiphertext);
 bool DecryptSecret(const CKeyingMaterial& master_key, std::span<const unsigned char> ciphertext, const uint256& iv, CKeyingMaterial& plaintext);
 bool DecryptKey(const CKeyingMaterial& master_key, std::span<const unsigned char> crypted_secret, const CPubKey& pub_key, CKey& key);
+
+// Quantum key encryption support
+bool EncryptQuantumKey(const CKeyingMaterial& master_key, const ::quantum::CQuantumKey& key, const ::quantum::CQuantumPubKey& pubkey, std::vector<unsigned char>& crypted_key);
+bool DecryptQuantumKey(const CKeyingMaterial& master_key, std::span<const unsigned char> crypted_key, const ::quantum::CQuantumPubKey& pubkey, ::quantum::CQuantumKey& key);
 } // namespace wallet
 
 #endif // BITCOIN_WALLET_CRYPTER_H
