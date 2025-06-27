@@ -6,7 +6,6 @@
 
 #include <crypto/quantum_key.h>
 #include <wallet/crypter.h>
-#include <wallet/quantum_scriptpubkeyman.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
 

@@ -270,15 +270,6 @@ public:
     bool WriteActiveScriptPubKeyMan(uint8_t type, const uint256& id, bool internal);
     bool EraseActiveScriptPubKeyMan(uint8_t type, bool internal);
 
-    // Quantum key methods
-    bool WriteQuantumKey(const CKeyID& keyid, const std::vector<unsigned char>& privkey, const CKeyMetadata& meta);
-    bool WriteCryptedQuantumKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret, const CKeyMetadata& meta);
-    bool WriteQuantumPubKey(const CKeyID& keyid, const std::vector<unsigned char>& pubkey);
-    bool WriteQuantumScript(const CScriptID& scriptid, uint8_t type);
-    bool EraseQuantumKey(const CKeyID& keyid);
-    bool EraseQuantumPubKey(const CKeyID& keyid);
-    bool EraseQuantumScript(const CScriptID& scriptid);
-    bool WriteQuantumScriptPubKeyMan(const uint256& id, uint8_t scheme_type);
 
     DBErrors LoadWallet(CWallet* pwallet);
 

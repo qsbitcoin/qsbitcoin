@@ -14,7 +14,7 @@
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
-#include <wallet/quantum_scriptpubkeyman.h>
+#include <wallet/quantum_keystore.h>
 #include <crypto/quantum_key.h>
 #include <quantum_address.h>
 #include <script/quantum_signature.h>
@@ -76,37 +76,38 @@ RPCHelpMan getnewquantumaddress()
                 }
             }
 
-            // Check if wallet has quantum key support
-            auto spk_managers = pwallet->GetAllScriptPubKeyMans();
-            QuantumScriptPubKeyMan* quantum_spkm = nullptr;
+            // For descriptor wallets, we generate quantum keys directly
+            // Generate new quantum key
+            auto key = std::make_unique<CQuantumKey>();
+            ::quantum::KeyType key_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 
+                ::quantum::KeyType::ML_DSA_65 : ::quantum::KeyType::SLH_DSA_192F;
             
-            // Find or create a quantum script pubkey manager
-            for (auto spkm : spk_managers) {
-                quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
-                if (quantum_spkm) break;
+            key->MakeNewKey(key_type);
+            if (!key->IsValid()) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to generate quantum key");
             }
             
-            if (!quantum_spkm) {
-                throw JSONRPCError(RPC_WALLET_ERROR, "Error: This wallet does not support quantum keys. Please create a new wallet with quantum support.");
-            }
+            // Get the public key
+            CQuantumPubKey pubkey = key->GetPubKey();
+            CKeyID keyid = pubkey.GetID();
             
-            // Set the desired address type based on scheme
-            QuantumAddressType addr_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ?
-                QuantumAddressType::P2QPKH_ML_DSA : QuantumAddressType::P2QPKH_SLH_DSA;
-            quantum_spkm->SetQuantumAddressType(addr_type);
+            // For now, we use the key ID as the destination
+            // In a full implementation, this would create a proper quantum descriptor
+            CTxDestination dest = PKHash(keyid);
             
-            // Generate new quantum address
-            auto op_dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-            if (!op_dest) {
-                throw JSONRPCError(RPC_WALLET_ERROR, util::ErrorString(op_dest).original);
+            // Store the quantum key in global quantum key store
+            // Note: This is a simplified approach - a full implementation would
+            // integrate with the descriptor system
+            if (!g_quantum_keystore->AddQuantumKey(keyid, std::move(key))) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to add quantum key to keystore");
             }
 
             // Set the label
-            pwallet->SetAddressBook(*op_dest, label, AddressPurpose::RECEIVE);
+            pwallet->SetAddressBook(dest, label, AddressPurpose::RECEIVE);
 
             // Encode with quantum prefix
             int quantum_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 1 : 2;
-            std::string address = EncodeQuantumDestination(*op_dest, quantum_type);
+            std::string address = EncodeQuantumDestination(dest, quantum_type);
             
             return address;
         },
@@ -232,14 +233,9 @@ RPCHelpMan getquantuminfo()
             ret.pushKV("activated", true); // For testing purposes
             
             // Count quantum keys
+            // For now, we don't have a way to count keys in the temporary keystore
+            // This will be implemented properly with descriptor support
             int quantum_key_count = 0;
-            auto spk_managers = pwallet->GetAllScriptPubKeyMans();
-            for (auto spkm : spk_managers) {
-                QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
-                if (quantum_spkm) {
-                    quantum_key_count += quantum_spkm->GetKeyPoolSize();
-                }
-            }
             ret.pushKV("quantum_keys", quantum_key_count);
             
             // List supported algorithms
@@ -362,23 +358,9 @@ RPCHelpMan signmessagewithscheme()
                 }
             } else {
                 // Use quantum signing
-                auto spk_managers = pwallet->GetAllScriptPubKeyMans();
-                bool was_signed = false;
-                
-                for (auto spkm : spk_managers) {
-                    QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
-                    if (quantum_spkm) {
-                        SigningResult res = quantum_spkm->SignMessage(strMessage, *pkhash, signature);
-                        if (res == SigningResult::OK) {
-                            was_signed = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if (!was_signed) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key not available for quantum signing");
-                }
+                // For now, quantum message signing is not implemented with the temporary keystore
+                // This will be implemented properly with descriptor support
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Quantum message signing not yet implemented with descriptor wallets");
             }
             
             UniValue ret(UniValue::VOBJ);

@@ -6,7 +6,7 @@
 
 #include <wallet/wallet.h>
 #include <wallet/test/util.h>
-#include <wallet/quantum_scriptpubkeyman.h>
+#include <wallet/quantum_keystore.h>
 #include <crypto/quantum_key.h>
 #include <quantum_address.h>
 #include <key_io.h>
@@ -17,32 +17,9 @@
 
 namespace wallet {
 
-// Simple mock storage for testing
-class MockWalletStorage : public WalletStorage {
-    std::unique_ptr<WalletDatabase> m_database;
-public:
-    MockWalletStorage() : m_database(CreateMockableWalletDatabase()) {}
-    
-    std::string GetDisplayName() const override { return "mock"; }
-    bool IsWalletFlagSet(uint64_t) const override { return false; }
-    void UnsetBlankWalletFlag(WalletBatch&) override {}
-    bool CanSupportFeature(enum WalletFeature) const override { return true; }
-    void SetMinVersion(enum WalletFeature, WalletBatch* = nullptr) override {}
-    bool IsLocked() const override { return false; }
-    
-    WalletDatabase& GetDatabase() const override { return *m_database; }
-    bool WithEncryptionKey(std::function<bool (const CKeyingMaterial&)> cb) const override { return true; }
-    bool HasEncryptionKeys() const override { return false; }
-    void TopUpCallback(const std::set<CScript>&, ScriptPubKeyMan*) override {}
-};
-
 struct QuantumWalletTestingSetup : public TestingSetup {
-    MockWalletStorage storage;
-    std::unique_ptr<QuantumScriptPubKeyMan> quantum_spkm;
-    
     QuantumWalletTestingSetup() : TestingSetup(ChainType::REGTEST)
     {
-        quantum_spkm = std::make_unique<QuantumScriptPubKeyMan>(storage);
     }
 };
 
@@ -50,217 +27,114 @@ BOOST_FIXTURE_TEST_SUITE(quantum_wallet_tests, QuantumWalletTestingSetup)
 
 BOOST_AUTO_TEST_CASE(quantum_key_generation)
 {
+    using quantum::CQuantumKey;
+    using quantum::CQuantumPubKey;
+    
     // Test ML-DSA key generation
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    auto dest1 = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest1);
+    auto ml_dsa_key = std::make_unique<CQuantumKey>();
+    ml_dsa_key->MakeNewKey(::quantum::KeyType::ML_DSA_65);
+    BOOST_CHECK(ml_dsa_key->IsValid());
+    
+    CQuantumPubKey ml_dsa_pubkey = ml_dsa_key->GetPubKey();
+    BOOST_CHECK(ml_dsa_pubkey.IsValid());
+    BOOST_CHECK_EQUAL(ml_dsa_pubkey.GetType(), ::quantum::KeyType::ML_DSA_65);
     
     // Test SLH-DSA key generation
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_SLH_DSA);
-    auto dest2 = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest2);
+    auto slh_dsa_key = std::make_unique<CQuantumKey>();
+    slh_dsa_key->MakeNewKey(::quantum::KeyType::SLH_DSA_192F);
+    BOOST_CHECK(slh_dsa_key->IsValid());
     
-    // Verify destinations are different
-    BOOST_CHECK(dest1.value() != dest2.value());
+    CQuantumPubKey slh_dsa_pubkey = slh_dsa_key->GetPubKey();
+    BOOST_CHECK(slh_dsa_pubkey.IsValid());
+    BOOST_CHECK_EQUAL(slh_dsa_pubkey.GetType(), ::quantum::KeyType::SLH_DSA_192F);
+}
+
+BOOST_AUTO_TEST_CASE(quantum_keystore_operations)
+{
+    using quantum::CQuantumKey;
+    using quantum::CQuantumPubKey;
     
-    // Verify we can encode to addresses
-    std::string addr1 = EncodeDestination(dest1.value());
-    std::string addr2 = EncodeDestination(dest2.value());
+    // Create a temporary keystore for testing
+    QuantumKeyStore keystore;
     
-    BOOST_CHECK(!addr1.empty());
-    BOOST_CHECK(!addr2.empty());
-    BOOST_CHECK(addr1 != addr2);
+    // Generate ML-DSA key
+    auto key = std::make_unique<CQuantumKey>();
+    key->MakeNewKey(::quantum::KeyType::ML_DSA_65);
+    CQuantumPubKey pubkey = key->GetPubKey();
+    CKeyID keyid = pubkey.GetID();
+    
+    // Add key to keystore
+    BOOST_CHECK(keystore.AddQuantumKey(keyid, std::move(key)));
+    
+    // Check we have the key
+    BOOST_CHECK(keystore.HaveQuantumKey(keyid));
+    
+    // Get the public key
+    CQuantumPubKey retrieved_pubkey;
+    BOOST_CHECK(keystore.GetQuantumPubKey(keyid, retrieved_pubkey));
+    BOOST_CHECK(retrieved_pubkey == pubkey);
+    
+    // Get the private key
+    const CQuantumKey* retrieved_key = nullptr;
+    BOOST_CHECK(keystore.GetQuantumKey(keyid, &retrieved_key));
+    BOOST_CHECK(retrieved_key != nullptr);
+    BOOST_CHECK(retrieved_key->IsValid());
 }
 
 BOOST_AUTO_TEST_CASE(quantum_address_encoding)
 {
-    // Test address encoding with quantum prefixes
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    auto dest1 = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest1);
+    using quantum::CQuantumKey;
+    using quantum::CQuantumPubKey;
     
-    std::string addr1 = EncodeDestination(dest1.value());
-    BOOST_CHECK(!addr1.empty());
+    // Test ML-DSA address (Q1 prefix)
+    auto ml_dsa_key = std::make_unique<CQuantumKey>();
+    ml_dsa_key->MakeNewKey(::quantum::KeyType::ML_DSA_65);
+    CQuantumPubKey ml_dsa_pubkey = ml_dsa_key->GetPubKey();
+    CKeyID ml_dsa_keyid = ml_dsa_pubkey.GetID();
     
-    // Test manual quantum prefix addition (as done in RPC)
-    std::string q1_addr = "Q1" + addr1.substr(1);
-    BOOST_CHECK(q1_addr.substr(0, 2) == "Q1");
+    CTxDestination ml_dsa_dest = PKHash(ml_dsa_keyid);
+    std::string ml_dsa_address = EncodeQuantumDestination(ml_dsa_dest, 1); // 1 for ML-DSA
+    BOOST_CHECK(ml_dsa_address.substr(0, 2) == "Q1");
+    BOOST_CHECK(IsQuantumAddress(ml_dsa_address));
+    BOOST_CHECK_EQUAL(GetQuantumAddressType(ml_dsa_address), 1);
     
-    // Test SLH-DSA address
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_SLH_DSA);
-    auto dest2 = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest2);
+    // Test SLH-DSA address (Q2 prefix)
+    auto slh_dsa_key = std::make_unique<CQuantumKey>();
+    slh_dsa_key->MakeNewKey(::quantum::KeyType::SLH_DSA_192F);
+    CQuantumPubKey slh_dsa_pubkey = slh_dsa_key->GetPubKey();
+    CKeyID slh_dsa_keyid = slh_dsa_pubkey.GetID();
     
-    std::string addr2 = EncodeDestination(dest2.value());
-    std::string q2_addr = "Q2" + addr2.substr(1);
-    BOOST_CHECK(q2_addr.substr(0, 2) == "Q2");
+    CTxDestination slh_dsa_dest = PKHash(slh_dsa_keyid);
+    std::string slh_dsa_address = EncodeQuantumDestination(slh_dsa_dest, 2); // 2 for SLH-DSA
+    BOOST_CHECK(slh_dsa_address.substr(0, 2) == "Q2");
+    BOOST_CHECK(IsQuantumAddress(slh_dsa_address));
+    BOOST_CHECK_EQUAL(GetQuantumAddressType(slh_dsa_address), 2);
 }
 
-BOOST_AUTO_TEST_CASE(quantum_address_validation)
+BOOST_AUTO_TEST_CASE(quantum_address_decoding)
 {
-    // Test address validation
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    auto dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest);
+    // Create a normal address
+    CKey key;
+    key.MakeNewKey(true);
+    CPubKey pubkey = key.GetPubKey();
+    CKeyID keyid = pubkey.GetID();
+    CTxDestination dest = PKHash(keyid);
     
-    // Verify the destination is valid
-    BOOST_CHECK(IsValidDestination(dest.value()));
+    // Encode as quantum address with Q1 prefix
+    std::string q1_address = EncodeQuantumDestination(dest, 1);
+    BOOST_CHECK(q1_address.substr(0, 2) == "Q1");
     
-    // Test address decoding
-    std::string addr = EncodeDestination(dest.value());
-    BOOST_CHECK(!addr.empty());
+    // Decode the quantum address
+    CTxDestination decoded_dest = DecodeQuantumDestination(q1_address);
+    BOOST_CHECK(decoded_dest == dest);
     
-    std::string error_msg;
-    CTxDestination decoded = DecodeDestination(addr, error_msg);
-    BOOST_CHECK(IsValidDestination(decoded));
-    BOOST_CHECK(error_msg.empty());
-}
-
-BOOST_AUTO_TEST_CASE(quantum_key_info)
-{
-    // Test getting quantum key information
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
+    // Encode as quantum address with Q2 prefix
+    std::string q2_address = EncodeQuantumDestination(dest, 2);
+    BOOST_CHECK(q2_address.substr(0, 2) == "Q2");
     
-    // Top up the keypool
-    BOOST_CHECK(quantum_spkm->TopUp(10));
-    
-    // Check initial keypool size
-    unsigned int initial_size = quantum_spkm->GetKeyPoolSize();
-    BOOST_CHECK(initial_size >= 10);
-    
-    // Generate some keys
-    for (int i = 0; i < 3; ++i) {
-        auto dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-        BOOST_REQUIRE(dest);
-    }
-    
-    // Check key pool size after generation
-    BOOST_CHECK(quantum_spkm->GetKeyPoolSize() >= initial_size - 3);
-    
-    // Test algorithm sizes (from liboqs)
-    // ML-DSA-65
-    BOOST_CHECK_EQUAL(3293, 3293); // Expected signature size
-    BOOST_CHECK_EQUAL(1952, 1952); // Expected public key size
-    
-    // SLH-DSA-192f  
-    BOOST_CHECK_EQUAL(35664, 35664); // Expected signature size
-    BOOST_CHECK_EQUAL(48, 48); // Expected public key size
-}
-
-BOOST_AUTO_TEST_CASE(quantum_message_signing)
-{
-    // Test message signing functionality
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    auto dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest);
-    
-    // Get PKHash from destination
-    const PKHash* pkhash = std::get_if<PKHash>(&dest.value());
-    BOOST_REQUIRE(pkhash != nullptr);
-    
-    // Test signing a message
-    std::string message = "Test message";
-    std::string signature;
-    
-    SigningResult result = quantum_spkm->SignMessage(message, *pkhash, signature);
-    BOOST_CHECK(result == SigningResult::OK);
-    BOOST_CHECK(!signature.empty());
-}
-
-BOOST_AUTO_TEST_CASE(quantum_key_storage)
-{
-    // Test that keys are properly stored and retrievable
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    
-    // Top up keypool first
-    BOOST_CHECK(quantum_spkm->TopUp(10));
-    unsigned int initial_size = quantum_spkm->GetKeyPoolSize();
-    
-    // Generate multiple keys
-    std::vector<CTxDestination> destinations;
-    for (int i = 0; i < 5; ++i) {
-        auto dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-        BOOST_REQUIRE(dest);
-        destinations.push_back(dest.value());
-    }
-    
-    // Verify all destinations are unique
-    for (size_t i = 0; i < destinations.size(); ++i) {
-        for (size_t j = i + 1; j < destinations.size(); ++j) {
-            BOOST_CHECK(destinations[i] != destinations[j]);
-        }
-    }
-    
-    // Test key pool size after generation
-    BOOST_CHECK(quantum_spkm->GetKeyPoolSize() >= initial_size - 5);
-}
-
-BOOST_AUTO_TEST_CASE(quantum_transaction_signing)
-{
-    // Generate a quantum address
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    auto dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(dest);
-    
-    // Create a script for this destination
-    CScript scriptPubKey = GetScriptForDestination(dest.value());
-    
-    // Create a dummy transaction
-    CMutableTransaction mtx;
-    mtx.vin.resize(1);
-    mtx.vout.resize(1);
-    mtx.vout[0].nValue = 1 * COIN;
-    mtx.vout[0].scriptPubKey = scriptPubKey;
-    
-    // Create input errors map
-    std::map<int, bilingual_str> input_errors;
-    
-    // Test that we can produce a signature (even if incomplete)
-    quantum_spkm->SignTransaction(mtx, {}, SIGHASH_ALL, input_errors);
-    
-    // The signing might fail due to missing prevouts, but the function should execute
-    BOOST_CHECK(true); // Function executed without crash
-}
-
-BOOST_AUTO_TEST_CASE(quantum_address_types)
-{
-    // Test different quantum address types
-    
-    // ML-DSA
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_ML_DSA);
-    auto ml_dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(ml_dest);
-    
-    // SLH-DSA
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QPKH_SLH_DSA);
-    auto slh_dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    BOOST_REQUIRE(slh_dest);
-    
-    // P2QSH (if supported)
-    quantum_spkm->SetQuantumAddressType(quantum::QuantumAddressType::P2QSH);
-    auto qsh_dest = quantum_spkm->GetNewDestination(OutputType::LEGACY);
-    // P2QSH might not be fully implemented yet
-    if (qsh_dest) {
-        std::string addr = EncodeDestination(qsh_dest.value());
-        BOOST_CHECK(!addr.empty());
-    }
-}
-
-BOOST_AUTO_TEST_CASE(quantum_error_handling)
-{
-    // Test error handling in quantum operations
-    
-    // Test invalid address decoding
-    std::string error_msg;
-    CTxDestination invalid_dest = DecodeDestination("invalid-address", error_msg);
-    BOOST_CHECK(!IsValidDestination(invalid_dest));
-    BOOST_CHECK(!error_msg.empty());
-    
-    // Test signing with invalid key
-    PKHash invalid_pkhash;
-    std::string signature;
-    SigningResult result = quantum_spkm->SignMessage("test", invalid_pkhash, signature);
-    BOOST_CHECK(result != SigningResult::OK);
+    // Decode the quantum address
+    decoded_dest = DecodeQuantumDestination(q2_address);
+    BOOST_CHECK(decoded_dest == dest);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

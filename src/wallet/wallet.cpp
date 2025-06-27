@@ -64,7 +64,6 @@
 #include <wallet/crypter.h>
 #include <wallet/db.h>
 #include <wallet/external_signer_scriptpubkeyman.h>
-#include <wallet/quantum_scriptpubkeyman.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/transaction.h>
 #include <wallet/types.h>
@@ -3545,51 +3544,9 @@ void CWallet::SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch)
 
     SetupDescriptorScriptPubKeyMans(batch, master_key);
     
-    // If quantum flag is set, also add a QuantumScriptPubKeyMan
-    if (IsWalletFlagSet(WALLET_FLAG_QUANTUM)) {
-        WalletLogPrintf("SetupOwnDescriptorScriptPubKeyMans: Quantum flag is set, setting up quantum SPKMs\n");
-        SetupQuantumScriptPubKeyMan(batch);
-    } else {
-        WalletLogPrintf("SetupOwnDescriptorScriptPubKeyMans: Quantum flag is NOT set\n");
-    }
+    // Quantum support will be integrated with descriptors in the future
 }
 
-void CWallet::SetupQuantumScriptPubKeyMan(WalletBatch& batch)
-{
-    AssertLockHeld(cs_wallet);
-    
-    // Create QuantumScriptPubKeyMan instances for each quantum signature type
-    // Use a smaller initial keypool for quantum keys due to computational cost
-    const unsigned int quantum_keypool_size = std::min(static_cast<unsigned int>(m_keypool_size), 2u);
-    
-    // ML-DSA
-    auto ml_dsa_spkm = std::make_unique<QuantumScriptPubKeyMan>(*this);
-    ml_dsa_spkm->SetQuantumAddressType(QuantumAddressType::P2QPKH_ML_DSA);
-    // Skip initial keypool generation to avoid deadlock - it will be done later
-    // ml_dsa_spkm->TopUp(quantum_keypool_size);
-    uint256 ml_dsa_id = ml_dsa_spkm->GetID();
-    AddScriptPubKeyMan(ml_dsa_id, std::move(ml_dsa_spkm));
-    
-    // SLH-DSA (SPHINCS+)
-    auto slh_dsa_spkm = std::make_unique<QuantumScriptPubKeyMan>(*this);
-    slh_dsa_spkm->SetQuantumAddressType(QuantumAddressType::P2QPKH_SLH_DSA);
-    // Skip initial keypool generation to avoid deadlock - it will be done later
-    // slh_dsa_spkm->TopUp(quantum_keypool_size);
-    uint256 slh_dsa_id = slh_dsa_spkm->GetID();
-    AddScriptPubKeyMan(slh_dsa_id, std::move(slh_dsa_spkm));
-    
-    // Write the quantum SPKMs to disk
-    if (!batch.WriteQuantumScriptPubKeyMan(ml_dsa_id, static_cast<uint8_t>(QuantumAddressType::P2QPKH_ML_DSA))) {
-        throw std::runtime_error("Error: cannot write ML-DSA ScriptPubKeyMan to database");
-    }
-    if (!batch.WriteQuantumScriptPubKeyMan(slh_dsa_id, static_cast<uint8_t>(QuantumAddressType::P2QPKH_SLH_DSA))) {
-        throw std::runtime_error("Error: cannot write SLH-DSA ScriptPubKeyMan to database");
-    }
-    
-    // Log the setup
-    WalletLogPrintf("Quantum signature support enabled: ML-DSA (id=%s), SLH-DSA (id=%s)\n", 
-                    ml_dsa_id.ToString(), slh_dsa_id.ToString());
-}
 
 void CWallet::SetupDescriptorScriptPubKeyMans()
 {

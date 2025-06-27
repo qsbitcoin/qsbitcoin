@@ -12,7 +12,7 @@
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
-#include <wallet/quantum_scriptpubkeyman.h>
+#include <wallet/quantum_keystore.h>
 
 using interfaces::FoundBlock;
 
@@ -166,15 +166,10 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
             
             // Check if this is a quantum address and encode appropriately
             std::string encoded_address = EncodeDestination(address);
-            auto spk_managers = wallet.GetAllScriptPubKeyMans();
-            for (auto spkm : spk_managers) {
-                QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
-                if (quantum_spkm) {
-                    int quantum_type = quantum_spkm->GetQuantumTypeForAddress(address);
-                    if (quantum_type > 0) {
-                        encoded_address = EncodeQuantumDestination(address, quantum_type);
-                        break;
-                    }
+            if (g_quantum_keystore) {
+                int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(address);
+                if (quantum_type > 0) {
+                    encoded_address = EncodeQuantumDestination(address, quantum_type);
                 }
             }
             
@@ -324,17 +319,10 @@ static void MaybePushAddress(UniValue & entry, const CTxDestination &dest, const
         std::string address = EncodeDestination(dest);
         
         // Check if this is a quantum address and encode appropriately
-        if (pwallet) {
-            auto spk_managers = pwallet->GetAllScriptPubKeyMans();
-            for (auto spkm : spk_managers) {
-                QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
-                if (quantum_spkm) {
-                    int quantum_type = quantum_spkm->GetQuantumTypeForAddress(dest);
-                    if (quantum_type > 0) {
-                        address = EncodeQuantumDestination(dest, quantum_type);
-                        break;
-                    }
-                }
+        if (pwallet && g_quantum_keystore) {
+            int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(dest);
+            if (quantum_type > 0) {
+                address = EncodeQuantumDestination(dest, quantum_type);
             }
         }
         

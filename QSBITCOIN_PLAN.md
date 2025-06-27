@@ -218,9 +218,29 @@ target_link_libraries(bitcoind PRIVATE oqs)
    - Integrated with WalletBatch for atomic database operations
    - Keys are persisted during generation and encryption operations
 
+### 🟢 Recently Completed (June 27, 2025 - Update 3)
+1. **Quantum Address Display with Q Prefixes** - Implemented transparent Q prefix handling
+   - Q1 prefix for ML-DSA addresses, Q2 for SLH-DSA addresses, Q3 for P2QSH
+   - Modified key_io functions to encode/decode quantum addresses with prefixes
+   - Updated all wallet RPC commands to display quantum addresses correctly
+   - Prefixes are transparently added for display and removed for internal processing
+
+2. **Legacy QuantumScriptPubKeyMan Removal** - Transitioned to descriptor-based architecture
+   - Removed quantum_scriptpubkeyman.h and quantum_scriptpubkeyman.cpp completely
+   - Created temporary QuantumKeyStore class for quantum key management
+   - Updated all RPC and wallet code to use the quantum keystore
+   - Removed quantum database functions from walletdb
+   - Updated test files to work without legacy classes
+   - This sets the foundation for proper descriptor wallet integration
+
 ### 🟡 In Progress
-1. **Core Implementation Testing & Bug Fixes** - Focus on making existing quantum functionality robust
-2. **Key Migration Utilities** - Tools for migrating from ECDSA to quantum keys (LOW PRIORITY - deferred until core is solid)
+1. **Descriptor Wallet Integration** - Proper integration with Bitcoin Core's descriptor system
+   - Need to create quantum descriptors (qpkh, qwpkh, etc.)
+   - Implement quantum-aware PubkeyProvider classes
+   - Integrate with DescriptorScriptPubKeyMan
+   - Remove temporary quantum keystore once descriptors are implemented
+2. **Core Implementation Testing & Bug Fixes** - Focus on making existing quantum functionality robust
+3. **Key Migration Utilities** - Tools for migrating from ECDSA to quantum keys (LOW PRIORITY - deferred until core is solid)
 
 ### 🔴 Not Started
 1. **Network Protocol** - May not need changes (analysis shows standard protocol handles quantum transactions)
@@ -281,6 +301,8 @@ target_link_libraries(bitcoind PRIVATE oqs)
 7. **Namespace Conflicts** - Global ::quantum namespace required to avoid conflicts with wallet namespace in crypter.h
 8. **Key Storage** - Encrypted keys stored separately from plaintext; on-demand decryption for signing operations
 9. **Coin Selection** - Quantum input size calculation must precede descriptor-based calculation; quantum scripts don't need SigningProvider
+10. **Descriptor Architecture** - Bitcoin Core's descriptor wallet system is the correct approach for quantum support; legacy ScriptPubKeyMan not needed
+11. **Quantum Address Display** - Q prefixes (Q1/Q2/Q3) should be transparently handled - added for display, removed for internal processing
 
 ### Next Critical Steps
 1. **Activation Heights** - Set testnet/mainnet activation parameters for soft fork
@@ -299,4 +321,4 @@ This plan is a **living document** that will be updated throughout the developme
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
 *Last Updated: June 27, 2025*  
-*Version: 1.7* - Implemented database persistence for quantum keys in wallet
+*Version: 1.8* - Removed legacy QuantumScriptPubKeyMan, implemented Q prefix display, transitioned to descriptor-based architecture

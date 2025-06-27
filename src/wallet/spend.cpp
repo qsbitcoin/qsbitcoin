@@ -30,7 +30,7 @@
 #include <wallet/wallet.h>
 #include <quantum_address.h>
 #include <script/quantum_signature.h>
-#include <wallet/quantum_scriptpubkeyman.h>
+#include <wallet/quantum_keystore.h>
 
 #include <cmath>
 

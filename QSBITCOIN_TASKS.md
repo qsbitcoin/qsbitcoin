@@ -613,6 +613,133 @@ class ISignatureScheme {
 
 ## Phase 6: Wallet Integration
 
+### New Phase 6 Tasks Due to Architecture Change
+
+The transition from legacy QuantumScriptPubKeyMan to descriptor-based architecture requires additional tasks:
+
+### 6.3 Quantum Descriptor Implementation
+**Status**: 🔴 Not Started  
+**Priority**: Critical  
+**Dependencies**: 6.1 (Architecture change completed)  
+**Description**: Implement quantum-aware descriptors for Bitcoin Core's descriptor wallet system
+**Tasks**:
+- [ ] Design quantum descriptor syntax (e.g., `qpkh()`, `qwpkh()`, `qsh()`)
+- [ ] Create `QuantumPubkeyProvider` class extending `PubkeyProvider`
+- [ ] Implement `ExpandHelper` for quantum pubkeys
+- [ ] Add quantum descriptor parsing in `descriptor.cpp`
+- [ ] Support both ML-DSA and SLH-DSA in descriptors
+- [ ] Implement descriptor serialization for quantum keys
+- [ ] Add descriptor inference for quantum addresses
+- [ ] **Unit Tests**: Quantum descriptor validation
+  - [ ] Create `src/test/quantum_descriptor_tests.cpp`
+  - [ ] Test descriptor parsing for all quantum types
+  - [ ] Test key expansion and derivation
+  - [ ] Test descriptor round-trip serialization
+  - [ ] Test inference from quantum addresses
+  - [ ] Test invalid descriptor rejection
+- [ ] **Build & Test**:
+  ```bash
+  # Build (timeout: 5 minutes)
+  if [ -f build/build.ninja ]; then
+      ninja -C build -j$(nproc)
+  else
+      cmake --build build -j$(nproc)
+  fi
+  ./build/bin/test_bitcoin -t quantum_descriptor_tests
+  ```
+
+### 6.4 DescriptorScriptPubKeyMan Integration
+**Status**: 🔴 Not Started  
+**Priority**: Critical  
+**Dependencies**: 6.3  
+**Description**: Integrate quantum support into DescriptorScriptPubKeyMan
+**Tasks**:
+- [ ] Extend `DescriptorScriptPubKeyMan` to handle quantum keys
+- [ ] Implement quantum key generation in descriptor context
+- [ ] Add quantum signing support to `SignTransaction`
+- [ ] Update `GetSigningProvider` for quantum descriptors
+- [ ] Implement quantum key import/export via descriptors
+- [ ] Add quantum keypool management
+- [ ] Handle encryption for quantum keys in descriptors
+- [ ] **Unit Tests**: Descriptor SPKM integration
+  - [ ] Create `src/test/quantum_descriptor_spkm_tests.cpp`
+  - [ ] Test quantum key generation via descriptors
+  - [ ] Test transaction signing with quantum descriptors
+  - [ ] Test key import/export functionality
+  - [ ] Test encryption/decryption of quantum keys
+  - [ ] Test keypool refill with quantum keys
+- [ ] **Build & Test**:
+  ```bash
+  # Build (timeout: 5 minutes)
+  if [ -f build/build.ninja ]; then
+      ninja -C build -j$(nproc)
+  else
+      cmake --build build -j$(nproc)
+  fi
+  ./build/bin/test_bitcoin -t quantum_descriptor_spkm_tests
+  ```
+
+### 6.5 Legacy to Descriptor Migration
+**Status**: 🔴 Not Started  
+**Priority**: High  
+**Dependencies**: 6.4  
+**Description**: Migrate from temporary quantum keystore to descriptor system
+**Tasks**:
+- [ ] Create migration path from QuantumKeyStore to descriptors
+- [ ] Implement key transfer from global store to wallet
+- [ ] Update all RPC commands to use descriptor system
+- [ ] Remove temporary QuantumKeyStore after migration
+- [ ] Update wallet loading to handle quantum descriptors
+- [ ] Add backward compatibility for old quantum wallets
+- [ ] Create migration documentation
+- [ ] **Unit Tests**: Migration validation
+  - [ ] Create `src/test/quantum_migration_tests.cpp`
+  - [ ] Test keystore to descriptor migration
+  - [ ] Test RPC command compatibility
+  - [ ] Test wallet loading with quantum descriptors
+  - [ ] Test backward compatibility scenarios
+  - [ ] Test data integrity during migration
+- [ ] **Build & Test**:
+  ```bash
+  # Build (timeout: 5 minutes)
+  if [ -f build/build.ninja ]; then
+      ninja -C build -j$(nproc)
+  else
+      cmake --build build -j$(nproc)
+  fi
+  ./build/bin/test_bitcoin -t quantum_migration_tests
+  ```
+
+### 6.6 Quantum Wallet Database Updates
+**Status**: 🔴 Not Started  
+**Priority**: Medium  
+**Dependencies**: 6.4  
+**Description**: Update wallet database for descriptor-based quantum keys
+**Tasks**:
+- [ ] Remove obsolete quantum database keys (QUANTUM_KEY, etc.)
+- [ ] Add descriptor-based quantum key storage
+- [ ] Update wallet version for quantum descriptor support
+- [ ] Implement database upgrade logic
+- [ ] Add database consistency checks
+- [ ] Create database backup before migration
+- [ ] **Unit Tests**: Database integrity
+  - [ ] Test database upgrade process
+  - [ ] Test key storage and retrieval
+  - [ ] Test database consistency after migration
+  - [ ] Test rollback scenarios
+- [ ] **Build & Test**:
+  ```bash
+  # Build (timeout: 5 minutes)
+  if [ -f build/build.ninja ]; then
+      ninja -C build -j$(nproc)
+  else
+      cmake --build build -j$(nproc)
+  fi
+  ./build/bin/test_bitcoin -t quantum_wallet_db_tests
+  ```
+
+## Phase 6: Wallet Integration
+
 **Before Starting**: Review QSBITCOIN_PLAN.md Section "Simple Migration Path"
 **After Completion**: Update plan with actual wallet implementation and user experience findings, add tasks for any usability improvements identified
 
@@ -631,6 +758,21 @@ class ISignatureScheme {
 - [x] Database persistence for quantum keys **[COMPLETED June 27, 2025 - Update 2]**
 - [x] Add quantum wallet creation support **[COMPLETED June 27, 2025 - Update 3]**
   - Fixed hanging issue by deferring keypool generation to avoid deadlock
+- [x] Remove legacy QuantumScriptPubKeyMan **[COMPLETED June 27, 2025 - Update 4]**
+  - Completely removed quantum_scriptpubkeyman.h/.cpp files
+  - Created temporary quantum_keystore.h/.cpp as interim solution
+  - Updated all RPC and wallet code to use quantum keystore
+  - Removed quantum database functions from walletdb
+  - Updated test files to work without legacy classes
+- [x] Implement quantum address display with Q prefixes **[COMPLETED June 27, 2025 - Update 4]**
+  - Q1 prefix for ML-DSA, Q2 for SLH-DSA, Q3 for P2QSH
+  - Transparent handling - prefixes added for display, removed internally
+  - Updated all wallet commands to show quantum addresses correctly
+- [ ] Integrate with descriptor wallet system **[IN PROGRESS - Next critical step]**
+  - See tasks 6.3, 6.4, 6.5, and 6.6 for detailed breakdown
+  - Create quantum descriptors (qpkh, qwpkh, etc.)
+  - Implement quantum PubkeyProvider classes
+  - Remove temporary quantum keystore after integration
 - [ ] Implement wallet migration tools **[LOW PRIORITY - Core implementation first]**
 - [x] **Unit Tests**: Wallet functionality validation
   - [x] Create `src/test/quantum_wallet_tests.cpp` **[COMPLETED June 27, 2025]**
@@ -653,7 +795,7 @@ class ISignatureScheme {
   ```
 
 **Implementation Notes**:
-- Created `QuantumScriptPubKeyMan` class to manage quantum keys
+- Created `QuantumScriptPubKeyMan` class to manage quantum keys (NOW REMOVED)
 - Supports both ML-DSA and SLH-DSA key types
 - Uses unique_ptr for quantum keys due to non-copyable nature
 - Full implementation includes:
@@ -672,6 +814,12 @@ class ISignatureScheme {
   - Creates separate SPKMs for ML-DSA and SLH-DSA key types
   - Writes quantum SPKMs to database using `WriteQuantumScriptPubKeyMan`
   - Added necessary database keys and methods in walletdb
+- **Architecture Change (June 27, 2025 - Update 4)**:
+  - Removed legacy QuantumScriptPubKeyMan implementation completely
+  - Created temporary QuantumKeyStore class (quantum_keystore.h/.cpp)
+  - Stores quantum keys globally outside wallet for now
+  - All quantum addresses display with Q prefixes (Q1/Q2/Q3)
+  - Next step: proper descriptor wallet integration
 
 ### 6.2 RPC Interface Extensions
 **Status**: 🟡 In Progress  
@@ -812,11 +960,14 @@ class ISignatureScheme {
 ## Progress Tracking
 
 ### Overall Progress
-- **Total Tasks**: 127
-- **Completed**: 121 (+1 wallet creation)
-- **Critical Remaining**: 6 (wallet migration tools)
+- **Total Tasks**: 153 (+24 for descriptor implementation)
+- **Completed**: 125 (+4: legacy removal, Q prefix display, keystore, test updates)
+- **Critical Remaining**: 28 (24 descriptor tasks + 4 original)
+  - 16 critical descriptor implementation tasks
+  - 8 high priority migration tasks
+  - 4 medium priority database tasks
 - **Optional/Deferred**: 27 (network protocol & comprehensive testing)
-- **Actual Completion**: 95.3% of total, ~98% of required features
+- **Actual Completion**: 81.7% of total, ~90.6% of original features
 
 ### Phase Progress
 - Phase 1 (Foundation): 100% (18/18 tasks) ✅
@@ -824,19 +975,29 @@ class ISignatureScheme {
 - Phase 3 (Transactions): 100% (24/24 tasks) ✅
 - Phase 4 (Consensus): 100% (22/22 tasks) ✅
 - Phase 5 (Network): 0% (0/13 tasks) **[OPTIONAL - May not be needed]**
-- Phase 6 (Wallet): 92.9% (13/14 tasks) 🟡 **[1 LOW PRIORITY task remaining]**
+- Phase 6 (Wallet): 40.5% (17/42 tasks) 🟡 **[25 new descriptor tasks added due to architecture change]**
+  - Original tasks: 94.1% complete (16/17)
+  - New descriptor tasks: 0% complete (0/25)
 - Phase 7 (Testing): 0% (0/14 tasks) **[DEFERRED - Tests written with features]**
 
 ### Critical Path Summary
 - **Core implementation is feature-complete** - All essential quantum signature functionality is implemented
-- **Migration tools deferred** - User migration utilities are now low priority
-- **Focus on testing and bug fixes** - Make the core implementation production-ready
+- **Architecture transition initiated** - Moved from legacy ScriptPubKeyMan, now need descriptor implementation
+- **Quantum addresses fully functional** - Q prefix display working transparently
+- **Critical work remaining** - Descriptor implementation is essential for production use:
+  1. **Quantum Descriptors** (Task 6.3) - Design and implement quantum descriptor syntax
+  2. **SPKM Integration** (Task 6.4) - Integrate with DescriptorScriptPubKeyMan
+  3. **Migration Path** (Task 6.5) - Move from temporary keystore to descriptors
+  4. **Database Updates** (Task 6.6) - Update wallet DB for descriptor support
+- **Temporary solution in place** - QuantumKeyStore works but not production-ready
+- **Migration tools deferred** - User ECDSA→quantum migration utilities are low priority
+- **Focus on descriptor integration** - Complete the transition to Bitcoin Core's modern wallet architecture
 - **27 optional tasks** can be deferred or may not be needed
 
 ---
 
 *Last Updated: June 27, 2025*  
-*Version: 2.3* - Fixed quantum wallet creation hanging issue  
+*Version: 2.5* - Added 24 new tasks for descriptor wallet implementation following architecture change  
 
 ## Living Document Policy
 
