@@ -43,6 +43,16 @@ public:
                 mapOpNames[strName.substr(3)] = static_cast<opcodetype>(op);
             }
         }
+        
+        // Add legacy NOP names for backward compatibility with test data
+        mapOpNames["OP_NOP4"] = OP_NOP4;  // Same as OP_CHECKSIG_ML_DSA
+        mapOpNames["NOP4"] = OP_NOP4;
+        mapOpNames["OP_NOP5"] = OP_NOP5;  // Same as OP_CHECKSIG_SLH_DSA
+        mapOpNames["NOP5"] = OP_NOP5;
+        mapOpNames["OP_NOP6"] = OP_NOP6;  // Same as OP_CHECKSIGVERIFY_ML_DSA
+        mapOpNames["NOP6"] = OP_NOP6;
+        mapOpNames["OP_NOP7"] = OP_NOP7;  // Same as OP_CHECKSIGVERIFY_SLH_DSA
+        mapOpNames["NOP7"] = OP_NOP7;
     }
     opcodetype Parse(const std::string& s) const
     {

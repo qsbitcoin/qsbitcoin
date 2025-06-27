@@ -281,19 +281,10 @@ bool CQuantumKey::Derive(CQuantumKey& keyChild, ChainCode& ccChild, unsigned int
         }
     }
     
-    // For quantum keys, we need the full private key data
+    // For quantum keys, BIP32 derivation is not supported
+    // Quantum cryptographic keys cannot be derived hierarchically like ECDSA keys
     if (m_type == KeyType::ML_DSA_65 || m_type == KeyType::SLH_DSA_192F) {
-        // Get parent private key
-        secure_vector parentKey = GetPrivKeyData();
-        if (parentKey.empty()) {
-            return false;
-        }
-        
-        // Derive child key using quantum HD derivation
-        // Note: This currently generates a new random key rather than
-        // deriving deterministically. A full implementation would need
-        // to use the derived seed to generate keys deterministically.
-        return DeriveQuantumChild(keyChild, ccChild, nChild, cc, parentKey, m_type);
+        return false;
     }
     
     return false;

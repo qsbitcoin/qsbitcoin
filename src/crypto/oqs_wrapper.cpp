@@ -146,9 +146,8 @@ bool OQSContext::IsAlgorithmAvailable(const std::string& algorithm_name)
 SecureQuantumKey::SecureQuantumKey(size_t size)
     : m_data(size)
 {
-    // Initialize with zeros for now
-    // In production, this should use GetStrongRandBytes(m_data)
-    std::fill(m_data.begin(), m_data.end(), 0);
+    // Initialize with cryptographically secure random data
+    GetStrongRandBytes(m_data);
 }
 
 SecureQuantumKey::~SecureQuantumKey()

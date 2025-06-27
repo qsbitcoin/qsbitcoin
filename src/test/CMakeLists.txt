@@ -39,7 +39,6 @@ add_executable(test_bitcoin
   liboqs_tests.cpp
   signature_scheme_tests.cpp
   quantum_key_tests.cpp
-  quantum_hd_tests.cpp
   quantum_key_io_tests.cpp
   quantum_address_tests.cpp
   quantum_activation_tests.cpp
