@@ -82,4 +82,10 @@ int QuantumKeyStore::GetQuantumTypeForAddress(const CTxDestination& dest) const
     return 0; // Not a quantum address
 }
 
+size_t QuantumKeyStore::GetKeyCount() const
+{
+    LOCK(cs_quantum_keys);
+    return m_quantum_keys.size();
+}
+
 } // namespace wallet

@@ -283,6 +283,11 @@ static RPCHelpMan estimatequantumfee()
             UniValue errors(UniValue::VARR);
             FeeCalculation feeCalc;
             CFeeRate feeRate{fee_estimator.estimateSmartFee(conf_target, &feeCalc, conservative)};
+            
+            // Always include these fields as they are marked as required in the RPC definition
+            result.pushKV("discount_factor", discount_factor);
+            result.pushKV("signature_type", sig_type);
+            
             if (feeRate != CFeeRate(0)) {
                 CFeeRate min_mempool_feerate{mempool.GetMinFee()};
                 CFeeRate min_relay_feerate{mempool.m_opts.min_relay_feerate};
@@ -297,8 +302,6 @@ static RPCHelpMan estimatequantumfee()
                 
                 result.pushKV("feerate", ValueFromAmount(base_fee));
                 result.pushKV("quantum_feerate", ValueFromAmount(quantum_fee));
-                result.pushKV("discount_factor", discount_factor);
-                result.pushKV("signature_type", sig_type);
             } else {
                 errors.push_back("Insufficient data or no feerate found");
                 result.pushKV("errors", std::move(errors));

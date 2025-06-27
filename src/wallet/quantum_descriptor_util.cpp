@@ -4,12 +4,13 @@
 
 #include <wallet/quantum_descriptor_util.h>
 #include <wallet/quantum_keystore.h>
+#include <wallet/scriptpubkeyman.h>
 #include <script/solver.h>
 #include <quantum_address.h>
 
 namespace wallet {
 
-void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& provider, bool include_private)
+void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& provider, bool include_private, const DescriptorScriptPubKeyMan* desc_spkm)
 {
     // Check if this is a quantum script (OP_CHECKSIG_ML_DSA or OP_CHECKSIG_SLH_DSA + 20-byte hash)
     if (script.size() == 22 && 
@@ -21,20 +22,33 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
         uint160 hash(hash_bytes);
         CKeyID keyid(hash);
         
-        // Check if this is a quantum address in the global keystore
-        if (g_quantum_keystore) {
-            quantum::CQuantumPubKey pubkey;
-            if (g_quantum_keystore->GetQuantumPubKey(keyid, pubkey)) {
-                // Add quantum public key to the provider
-                provider.quantum_pubkeys[keyid] = pubkey;
+        // Try descriptor SPKM first, then fall back to global keystore
+        quantum::CQuantumPubKey pubkey;
+        bool have_pubkey = false;
+        
+        if (desc_spkm) {
+            have_pubkey = desc_spkm->GetQuantumPubKey(keyid, pubkey);
+        } else if (g_quantum_keystore) {
+            have_pubkey = g_quantum_keystore->GetQuantumPubKey(keyid, pubkey);
+        }
+        
+        if (have_pubkey) {
+            // Add quantum public key to the provider
+            provider.quantum_pubkeys[keyid] = pubkey;
+            
+            if (include_private) {
+                const quantum::CQuantumKey* key = nullptr;
+                bool have_key = false;
                 
-                if (include_private) {
-                    const quantum::CQuantumKey* key = nullptr;
-                    if (g_quantum_keystore->GetQuantumKey(keyid, &key) && key) {
-                        // Store the pointer to the quantum key
-                        // This is safe as long as g_quantum_keystore outlives the provider
-                        provider.quantum_keys[keyid] = key;
-                    }
+                if (desc_spkm) {
+                    have_key = desc_spkm->GetQuantumKey(keyid, &key);
+                } else if (g_quantum_keystore) {
+                    have_key = g_quantum_keystore->GetQuantumKey(keyid, &key);
+                }
+                
+                if (have_key && key) {
+                    // Store the pointer to the quantum key
+                    provider.quantum_keys[keyid] = key;
                 }
             }
         }
@@ -48,20 +62,33 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
         uint160 hash(solutions[0]);
         CKeyID keyid(hash);
         
-        // Check if this is a quantum address in the global keystore
-        if (g_quantum_keystore) {
-            quantum::CQuantumPubKey pubkey;
-            if (g_quantum_keystore->GetQuantumPubKey(keyid, pubkey)) {
-                // Add quantum public key to the provider
-                provider.quantum_pubkeys[keyid] = pubkey;
+        // Try descriptor SPKM first, then fall back to global keystore
+        quantum::CQuantumPubKey pubkey;
+        bool have_pubkey = false;
+        
+        if (desc_spkm) {
+            have_pubkey = desc_spkm->GetQuantumPubKey(keyid, pubkey);
+        } else if (g_quantum_keystore) {
+            have_pubkey = g_quantum_keystore->GetQuantumPubKey(keyid, pubkey);
+        }
+        
+        if (have_pubkey) {
+            // Add quantum public key to the provider
+            provider.quantum_pubkeys[keyid] = pubkey;
+            
+            if (include_private) {
+                const quantum::CQuantumKey* key = nullptr;
+                bool have_key = false;
                 
-                if (include_private) {
-                    const quantum::CQuantumKey* key = nullptr;
-                    if (g_quantum_keystore->GetQuantumKey(keyid, &key) && key) {
-                        // Store the pointer to the quantum key
-                        // This is safe as long as g_quantum_keystore outlives the provider
-                        provider.quantum_keys[keyid] = key;
-                    }
+                if (desc_spkm) {
+                    have_key = desc_spkm->GetQuantumKey(keyid, &key);
+                } else if (g_quantum_keystore) {
+                    have_key = g_quantum_keystore->GetQuantumKey(keyid, &key);
+                }
+                
+                if (have_key && key) {
+                    // Store the pointer to the quantum key
+                    provider.quantum_keys[keyid] = key;
                 }
             }
         }

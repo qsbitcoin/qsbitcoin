@@ -1216,7 +1216,7 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     auto provider = GetSigningProvider(index, include_private);
     if (provider) {
         // Populate quantum keys for this script if needed
-        PopulateQuantumSigningProvider(script, *provider, include_private);
+        PopulateQuantumSigningProvider(script, *provider, include_private, this);
     }
     return provider;
 }
@@ -1480,6 +1480,88 @@ bool DescriptorScriptPubKeyMan::AddCryptedKey(const CKeyID& key_id, const CPubKe
 
     m_map_crypted_keys[key_id] = make_pair(pubkey, crypted_key);
     return true;
+}
+
+bool DescriptorScriptPubKeyMan::AddQuantumKey(const CKeyID& key_id, std::unique_ptr<quantum::CQuantumKey> key)
+{
+    LOCK(cs_desc_man);
+    if (!key || !key->IsValid()) {
+        return false;
+    }
+    
+    // Store the public key as well
+    quantum::CQuantumPubKey pubkey = key->GetPubKey();
+    m_map_quantum_pubkeys[key_id] = pubkey;
+    
+    // Store the private key
+    m_map_quantum_keys[key_id] = std::move(key);
+    
+    // Persist to database
+    WalletBatch batch(m_storage.GetDatabase());
+    bool result = batch.WriteQuantumDescriptorKey(m_wallet_descriptor.id, pubkey, *m_map_quantum_keys[key_id]);
+    if (result) {
+        LogPrintf("Successfully wrote quantum key %s to descriptor %s\n", key_id.ToString(), m_wallet_descriptor.id.ToString());
+    } else {
+        LogPrintf("Failed to write quantum key %s to descriptor %s\n", key_id.ToString(), m_wallet_descriptor.id.ToString());
+    }
+    return result;
+}
+
+bool DescriptorScriptPubKeyMan::AddCryptedQuantumKey(const CKeyID& key_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& crypted_key)
+{
+    LOCK(cs_desc_man);
+    if (!m_map_quantum_keys.empty()) {
+        return false; // Can't add encrypted keys if we have unencrypted ones
+    }
+    
+    m_map_quantum_pubkeys[key_id] = pubkey;
+    m_map_crypted_quantum_keys[key_id] = make_pair(pubkey, crypted_key);
+    
+    // Persist to database
+    WalletBatch batch(m_storage.GetDatabase());
+    return batch.WriteCryptedQuantumDescriptorKey(m_wallet_descriptor.id, pubkey, crypted_key);
+}
+
+bool DescriptorScriptPubKeyMan::GetQuantumKey(const CKeyID& keyid, const quantum::CQuantumKey** key) const
+{
+    LOCK(cs_desc_man);
+    auto it = m_map_quantum_keys.find(keyid);
+    if (it != m_map_quantum_keys.end() && it->second) {
+        *key = it->second.get();
+        return true;
+    }
+    return false;
+}
+
+bool DescriptorScriptPubKeyMan::GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const
+{
+    LOCK(cs_desc_man);
+    auto it = m_map_quantum_pubkeys.find(keyid);
+    if (it != m_map_quantum_pubkeys.end()) {
+        pubkey = it->second;
+        return true;
+    }
+    return false;
+}
+
+bool DescriptorScriptPubKeyMan::HaveQuantumKey(const CKeyID& keyid) const
+{
+    LOCK(cs_desc_man);
+    return m_map_quantum_keys.count(keyid) > 0 || m_map_crypted_quantum_keys.count(keyid) > 0;
+}
+
+size_t DescriptorScriptPubKeyMan::GetQuantumKeyCount() const
+{
+    LOCK(cs_desc_man);
+    // Return the count of quantum public keys (includes both encrypted and unencrypted)
+    size_t count = m_map_quantum_pubkeys.size();
+    
+    // Log for debugging
+    if (count > 0) {
+        LogPrintf("DescriptorScriptPubKeyMan %s has %zu quantum keys\n", m_wallet_descriptor.id.ToString(), count);
+    }
+    
+    return count;
 }
 
 bool DescriptorScriptPubKeyMan::HasWalletDescriptor(const WalletDescriptor& desc) const

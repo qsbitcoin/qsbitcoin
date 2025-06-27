@@ -46,6 +46,9 @@ public:
     
     //! Get the quantum type for an address (1 for ML-DSA, 2 for SLH-DSA, 0 for non-quantum)
     int GetQuantumTypeForAddress(const CTxDestination& dest) const;
+    
+    //! Get the number of quantum keys in the store
+    size_t GetKeyCount() const;
 };
 
 //! Global quantum key store (temporary solution)

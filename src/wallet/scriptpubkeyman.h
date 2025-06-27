@@ -123,6 +123,11 @@ public:
 
     virtual bool HavePrivateKeys() const { return false; }
     virtual bool HaveCryptedKeys() const { return false; }
+    
+    //! Quantum key support
+    virtual bool GetQuantumKey(const CKeyID& keyid, const quantum::CQuantumKey** key) const { return false; }
+    virtual bool GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const { return false; }
+    virtual bool HaveQuantumKey(const CKeyID& keyid) const { return false; }
 
     //! The action to do when the DB needs rewrite
     virtual void RewriteDB() {}
@@ -291,6 +296,11 @@ private:
 
     KeyMap m_map_keys GUARDED_BY(cs_desc_man);
     CryptedKeyMap m_map_crypted_keys GUARDED_BY(cs_desc_man);
+    
+    //! Quantum key storage
+    std::map<CKeyID, std::unique_ptr<quantum::CQuantumKey>> m_map_quantum_keys GUARDED_BY(cs_desc_man);
+    std::map<CKeyID, quantum::CQuantumPubKey> m_map_quantum_pubkeys GUARDED_BY(cs_desc_man);
+    std::map<CKeyID, std::pair<quantum::CQuantumPubKey, std::vector<unsigned char>>> m_map_crypted_quantum_keys GUARDED_BY(cs_desc_man);
 
     //! keeps track of whether Unlock has run a thorough check before
     bool m_decryption_thoroughly_checked = false;
@@ -381,6 +391,14 @@ public:
 
     bool AddKey(const CKeyID& key_id, const CKey& key);
     bool AddCryptedKey(const CKeyID& key_id, const CPubKey& pubkey, const std::vector<unsigned char>& crypted_key);
+    
+    // Quantum key support
+    bool AddQuantumKey(const CKeyID& key_id, std::unique_ptr<quantum::CQuantumKey> key);
+    bool AddCryptedQuantumKey(const CKeyID& key_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& crypted_key);
+    bool GetQuantumKey(const CKeyID& keyid, const quantum::CQuantumKey** key) const override;
+    bool GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const override;
+    bool HaveQuantumKey(const CKeyID& keyid) const override;
+    size_t GetQuantumKeyCount() const;
 
     bool HasWalletDescriptor(const WalletDescriptor& desc) const;
     util::Result<void> UpdateWalletDescriptor(WalletDescriptor& descriptor);

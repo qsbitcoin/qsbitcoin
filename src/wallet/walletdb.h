@@ -7,6 +7,7 @@
 #define BITCOIN_WALLET_WALLETDB_H
 
 #include <key.h>
+#include <crypto/quantum_key.h>
 #include <script/sign.h>
 #include <util/transaction_identifier.h>
 #include <wallet/db.h>
@@ -82,6 +83,8 @@ extern const std::string VERSION;
 extern const std::string WALLETDESCRIPTOR;
 extern const std::string WALLETDESCRIPTORCKEY;
 extern const std::string WALLETDESCRIPTORKEY;
+extern const std::string WALLETDESCRIPTORQKEY;
+extern const std::string WALLETDESCRIPTORCQKEY;
 extern const std::string WATCHMETA;
 extern const std::string WATCHS;
 extern const std::string QUANTUM_KEY;
@@ -258,6 +261,11 @@ public:
     bool WriteDescriptorParentCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
     bool WriteDescriptorLastHardenedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
     bool WriteDescriptorCacheItems(const uint256& desc_id, const DescriptorCache& cache);
+    
+    // Quantum key support for descriptor wallets
+    bool WriteQuantumDescriptorKey(const uint256& desc_id, const quantum::CQuantumPubKey& pubkey, const quantum::CQuantumKey& privkey);
+    bool WriteCryptedQuantumDescriptorKey(const uint256& desc_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& secret);
+    bool WriteQuantumKeyMetadata(const CKeyMetadata& meta, const quantum::CQuantumPubKey& pubkey, bool overwrite);
 
     bool WriteLockedUTXO(const COutPoint& output);
     bool EraseLockedUTXO(const COutPoint& output);
@@ -314,6 +322,9 @@ bool LoadKey(CWallet* pwallet, DataStream& ssKey, DataStream& ssValue, std::stri
 bool LoadCryptedKey(CWallet* pwallet, DataStream& ssKey, DataStream& ssValue, std::string& strErr);
 bool LoadEncryptionKey(CWallet* pwallet, DataStream& ssKey, DataStream& ssValue, std::string& strErr);
 bool LoadHDChain(CWallet* pwallet, DataStream& ssValue, std::string& strErr);
+bool LoadQuantumDescriptorKey(CWallet* pwallet, DataStream& ssKey, DataStream& ssValue, std::string& strErr);
+bool LoadCryptedQuantumDescriptorKey(CWallet* pwallet, DataStream& ssKey, DataStream& ssValue, std::string& strErr);
+bool LoadQuantumKeyMetadata(CWallet* pwallet, DataStream& ssKey, DataStream& ssValue, std::string& strErr);
 
 //! Returns true if there are any DBKeys::LEGACY_TYPES record in the wallet db
 bool HasLegacyRecords(CWallet& wallet);
