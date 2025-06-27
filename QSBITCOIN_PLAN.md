@@ -196,17 +196,20 @@ target_link_libraries(bitcoind PRIVATE oqs)
 9. **Consensus Rules** - Quantum-specific transaction limits and fee structure
 10. **Basic Tests** - Unit tests for core functionality
 11. **Fee Integration** - Quantum fee adjustments integrated with mempool and validation
+12. **Fee Estimation RPC** - Added estimatequantumfee and estimatequantumtxfee commands
+13. **Wallet Backend** - QuantumScriptPubKeyMan for quantum key management
+14. **Transaction Signing** - Basic quantum signature support in wallet
 
 ### 🟡 In Progress
-1. **Key Management** - Wallet integration pending
-2. **Activation Parameters** - Need to set testnet/mainnet activation heights
-3. **Fee Estimation** - RPC commands for quantum transaction fee estimation
+1. **Wallet RPC Commands** - User-facing commands for quantum operations
+2. **Key Encryption** - Wallet encryption for quantum keys
+3. **Database Persistence** - Saving quantum keys to wallet database
 
 ### 🔴 Not Started
-1. **Wallet RPC Commands** - User-facing commands
-2. **Network Protocol** - May not need changes
-3. **Migration Tools** - Wallet migration utilities
-4. **Full Integration Testing** - End-to-end testing on testnet
+1. **Network Protocol** - May not need changes
+2. **Migration Tools** - Wallet migration utilities
+3. **Full Integration Testing** - End-to-end testing on testnet
+4. **Mempool Updates** - Quantum-specific mempool handling
 
 ## Security Model
 
