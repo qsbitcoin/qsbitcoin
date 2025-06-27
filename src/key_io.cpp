@@ -313,6 +313,58 @@ bool IsValidDestinationString(const std::string& str, const CChainParams& params
     return IsValidDestination(DecodeDestination(str, params, error_msg, nullptr));
 }
 
+// Quantum address support implementation
+
+bool IsQuantumAddress(const std::string& str)
+{
+    return str.length() > 2 && str[0] == 'Q' && (str[1] == '1' || str[1] == '2' || str[1] == '3');
+}
+
+int GetQuantumAddressType(const std::string& str) 
+{
+    if (!IsQuantumAddress(str)) return 0;
+    return str[1] - '0';  // Convert '1', '2', '3' to 1, 2, 3
+}
+
+std::string EncodeQuantumDestination(const CTxDestination& dest, int quantum_type)
+{
+    std::string address = EncodeDestination(dest);
+    if (quantum_type > 0 && quantum_type <= 3 && !address.empty()) {
+        // Replace first character with Q1, Q2, or Q3
+        address = "Q" + std::to_string(quantum_type) + address.substr(1);
+    }
+    return address;
+}
+
+CTxDestination DecodeQuantumDestination(const std::string& str)
+{
+    std::string error_msg;
+    return DecodeQuantumDestination(str, error_msg, nullptr);
+}
+
+CTxDestination DecodeQuantumDestination(const std::string& str, std::string& error_msg, std::vector<int>* error_locations)
+{
+    if (IsQuantumAddress(str)) {
+        // Remove Q prefix and decode as normal address
+        std::string normal_str = str.substr(2);
+        // Add back the normal prefix based on the chain parameters
+        const CChainParams& params = Params();
+        if (params.GetChainType() == ChainType::REGTEST || params.GetChainType() == ChainType::TESTNET) {
+            normal_str = "m" + normal_str;
+        } else {
+            normal_str = "1" + normal_str;  // Mainnet
+        }
+        return DecodeDestination(normal_str, error_msg, error_locations);
+    }
+    return DecodeDestination(str, error_msg, error_locations);
+}
+
+bool IsValidQuantumDestinationString(const std::string& str)
+{
+    std::string error_msg;
+    return IsValidDestination(DecodeQuantumDestination(str, error_msg, nullptr));
+}
+
 bool IsValidDestinationString(const std::string& str)
 {
     return IsValidDestinationString(str, Params());

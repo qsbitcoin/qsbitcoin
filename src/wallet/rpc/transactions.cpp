@@ -12,6 +12,7 @@
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
+#include <wallet/quantum_scriptpubkeyman.h>
 
 using interfaces::FoundBlock;
 
@@ -162,7 +163,22 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
         } else {
             UniValue obj(UniValue::VOBJ);
             if (fIsWatchonly) obj.pushKV("involvesWatchonly", true);
-            obj.pushKV("address",       EncodeDestination(address));
+            
+            // Check if this is a quantum address and encode appropriately
+            std::string encoded_address = EncodeDestination(address);
+            auto spk_managers = wallet.GetAllScriptPubKeyMans();
+            for (auto spkm : spk_managers) {
+                QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
+                if (quantum_spkm) {
+                    int quantum_type = quantum_spkm->GetQuantumTypeForAddress(address);
+                    if (quantum_type > 0) {
+                        encoded_address = EncodeQuantumDestination(address, quantum_type);
+                        break;
+                    }
+                }
+            }
+            
+            obj.pushKV("address",       encoded_address);
             obj.pushKV("amount",        ValueFromAmount(nAmount));
             obj.pushKV("confirmations", (nConf == std::numeric_limits<int>::max() ? 0 : nConf));
             obj.pushKV("label", label);
@@ -302,10 +318,27 @@ RPCHelpMan listreceivedbylabel()
     };
 }
 
-static void MaybePushAddress(UniValue & entry, const CTxDestination &dest)
+static void MaybePushAddress(UniValue & entry, const CTxDestination &dest, const CWallet* pwallet = nullptr)
 {
     if (IsValidDestination(dest)) {
-        entry.pushKV("address", EncodeDestination(dest));
+        std::string address = EncodeDestination(dest);
+        
+        // Check if this is a quantum address and encode appropriately
+        if (pwallet) {
+            auto spk_managers = pwallet->GetAllScriptPubKeyMans();
+            for (auto spkm : spk_managers) {
+                QuantumScriptPubKeyMan* quantum_spkm = dynamic_cast<QuantumScriptPubKeyMan*>(spkm);
+                if (quantum_spkm) {
+                    int quantum_type = quantum_spkm->GetQuantumTypeForAddress(dest);
+                    if (quantum_type > 0) {
+                        address = EncodeQuantumDestination(dest, quantum_type);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        entry.pushKV("address", address);
     }
 }
 
@@ -343,7 +376,7 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             if (involvesWatchonly || (wallet.IsMine(s.destination) & ISMINE_WATCH_ONLY)) {
                 entry.pushKV("involvesWatchonly", true);
             }
-            MaybePushAddress(entry, s.destination);
+            MaybePushAddress(entry, s.destination, &wallet);
             entry.pushKV("category", "send");
             entry.pushKV("amount", ValueFromAmount(-s.amount));
             const auto* address_book_entry = wallet.FindAddressBookEntry(s.destination);
@@ -375,7 +408,7 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             if (involvesWatchonly || (wallet.IsMine(r.destination) & ISMINE_WATCH_ONLY)) {
                 entry.pushKV("involvesWatchonly", true);
             }
-            MaybePushAddress(entry, r.destination);
+            MaybePushAddress(entry, r.destination, &wallet);
             PushParentDescriptors(wallet, wtx.tx->vout.at(r.vout).scriptPubKey, entry);
             if (wtx.IsCoinBase())
             {

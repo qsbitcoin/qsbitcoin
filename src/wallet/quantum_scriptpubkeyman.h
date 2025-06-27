@@ -98,6 +98,7 @@ public:
     // Address type management
     void SetQuantumAddressType(QuantumAddressType type);
     QuantumAddressType GetQuantumAddressType() const;
+    int GetQuantumTypeForAddress(const CTxDestination& dest) const;
     
     // Serialization
     bool LoadKey(const CKeyID& keyid, std::unique_ptr<CQuantumKey> key);

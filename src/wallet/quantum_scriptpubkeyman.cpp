@@ -30,19 +30,78 @@ util::Result<CTxDestination> QuantumScriptPubKeyMan::GetNewDestination(const Out
         return util::Error{strprintf(_("Keypool ran out, please call keypoolrefill"))};
     }
     
-    // Get a key from the keypool
-    auto it = m_keypool.begin();
-    CKeyID keyid = *it;
-    m_keypool.erase(it);
+    // Find a key from the keypool that matches the desired type
+    CKeyID keyid;
+    CQuantumPubKey pubkey;
+    bool found = false;
+    
+    // Determine the desired key type based on address type
+    ::quantum::KeyType desired_key_type = (m_address_type == QuantumAddressType::P2QPKH_ML_DSA) ? 
+        ::quantum::KeyType::ML_DSA_65 : ::quantum::KeyType::SLH_DSA_192F;
+    
+    // First, try to find a key of the desired type in the pool
+    for (auto it = m_keypool.begin(); it != m_keypool.end(); ++it) {
+        if (GetQuantumPubKey(*it, pubkey)) {
+            if (pubkey.GetType() == desired_key_type) {
+                keyid = *it;
+                m_keypool.erase(it);
+                found = true;
+                break;
+            }
+        }
+    }
+    
+    // If no key of the desired type found, generate one directly
+    if (!found) {
+        // Generate new quantum key of the specific type
+        auto key = std::make_unique<CQuantumKey>();
+        key->MakeNewKey(desired_key_type);
+        
+        if (!key->IsValid()) {
+            return util::Error{strprintf(_("Failed to generate quantum key"))};
+        }
+        
+        pubkey = key->GetPubKey();
+        keyid = pubkey.GetID();
+        
+        // Add to internal storage
+        m_quantum_pubkeys[keyid] = pubkey;
+        
+        // Get a batch for database operations
+        WalletBatch batch(m_storage.GetDatabase());
+        
+        // Write public key to database
+        if (!WriteQuantumPubKey(keyid, pubkey, batch)) {
+            return util::Error{strprintf(_("Failed to write quantum public key"))};
+        }
+        
+        // Store the key
+        if (m_encrypted && !m_master_key.empty()) {
+            // Encrypt the key
+            std::vector<unsigned char> encrypted_key;
+            if (!::wallet::EncryptQuantumKey(m_master_key, *key, pubkey, encrypted_key)) {
+                return util::Error{strprintf(_("Failed to encrypt quantum key"))};
+            }
+            m_encrypted_keys[keyid] = encrypted_key;
+            
+            // Write encrypted key to database
+            CKeyMetadata meta(GetTime());
+            if (!batch.WriteCryptedQuantumKey(keyid, encrypted_key, meta)) {
+                return util::Error{strprintf(_("Failed to write encrypted quantum key"))};
+            }
+        } else {
+            // Write unencrypted key to database
+            if (!WriteQuantumKey(keyid, *key, batch)) {
+                return util::Error{strprintf(_("Failed to write quantum key"))};
+            }
+            
+            // Store unencrypted in memory
+            m_quantum_keys[keyid] = std::move(key);
+        }
+    }
     
     // Mark as used
     m_used_keys.insert(keyid);
-    
-    // Get the public key
-    CQuantumPubKey pubkey;
-    if (!GetQuantumPubKey(keyid, pubkey)) {
-        return util::Error{strprintf(_("Public key not found"))};
-    }
     
     // Get a batch for database operations
     WalletBatch batch(m_storage.GetDatabase());
@@ -574,6 +633,41 @@ QuantumAddressType QuantumScriptPubKeyMan::GetQuantumAddressType() const
 {
     LOCK(cs_key_man);
     return m_address_type;
+}
+
+int QuantumScriptPubKeyMan::GetQuantumTypeForAddress(const CTxDestination& dest) const
+{
+    LOCK(cs_key_man);
+    
+    // Check if it's a PKHash (P2QPKH address)
+    const PKHash* pkhash = std::get_if<PKHash>(&dest);
+    if (pkhash) {
+        CKeyID keyid(static_cast<uint160>(*pkhash));
+        // Check if we have this quantum key
+        if (HaveQuantumKey(keyid)) {
+            // Check the public key to determine the type
+            CQuantumPubKey pubkey;
+            if (GetQuantumPubKey(keyid, pubkey)) {
+                if (pubkey.GetType() == ::quantum::KeyType::ML_DSA_65) {
+                    return 1; // Q1 prefix
+                } else if (pubkey.GetType() == ::quantum::KeyType::SLH_DSA_192F) {
+                    return 2; // Q2 prefix
+                }
+            }
+        }
+    }
+    
+    // Check if it's a ScriptHash (P2QSH address)
+    const ScriptHash* scripthash = std::get_if<ScriptHash>(&dest);
+    if (scripthash) {
+        CScriptID scriptid(static_cast<uint160>(*scripthash));
+        auto it = m_quantum_scripts.find(scriptid);
+        if (it != m_quantum_scripts.end()) {
+            return 3; // Q3 prefix for P2QSH
+        }
+    }
+    
+    return 0; // Not a quantum address
 }
 
 bool QuantumScriptPubKeyMan::LoadKey(const CKeyID& keyid, std::unique_ptr<CQuantumKey> key)
