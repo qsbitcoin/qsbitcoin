@@ -120,6 +120,7 @@ BASE_SCRIPTS = [
     'wallet_basic.py',
     'feature_maxtipage.py',
     'wallet_multiwallet.py',
+    'wallet_quantum.py',
     'wallet_multiwallet.py --usecli',
     'p2p_dns_seeds.py',
     'wallet_groups.py',

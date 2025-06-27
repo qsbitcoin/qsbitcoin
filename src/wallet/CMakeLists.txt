@@ -22,6 +22,7 @@ add_library(bitcoin_wallet STATIC EXCLUDE_FROM_ALL
   rpc/backup.cpp
   rpc/coins.cpp
   rpc/encrypt.cpp
+  rpc/quantum.cpp
   rpc/signmessage.cpp
   rpc/spend.cpp
   rpc/transactions.cpp

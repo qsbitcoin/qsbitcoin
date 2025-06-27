@@ -107,13 +107,13 @@ ctest --test-dir build -j$(nproc) --output-on-failure
   ```
 
 **Git Setup Notes**:
-- Repository initialized with `git init`
+- Repository forked from Bitcoin Core v25.0
 - **IMPORTANT**: Always use SSH URLs for git operations, never HTTPS
-- Origin configured as: `git remote add origin git@github.com:qsbitcoin/qsbitcoin.git`
-- Bitcoin configured as upstream remote: `git remote add upstream https://github.com/bitcoin/bitcoin.git`
+- Fork cloned locally: `git clone git@github.com:qsbitcoin/qsbitcoin.git`
+- Upstream remote (optional) for syncing with Bitcoin Core: `git remote add upstream https://github.com/bitcoin/bitcoin.git`
+- Working on master branch (the fork itself is named qsbitcoin)
 - Initial commit created with QSBitcoin-specific files
-- Bitcoin source imported and building successfully
-- liboqs v0.12.0 copied into project
+- liboqs v0.12.0 integrated into project
 - All changes pushed to origin using: `git push -u origin master`
 
 ### 1.2 Development Environment

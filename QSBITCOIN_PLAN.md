@@ -60,27 +60,27 @@ enum SignatureSchemeID : uint8_t {
 ### Phase 0: Repository Setup (Week 1)
 **Git Configuration and Fork Management:**
 ```bash
-# 1. Initialize QSBitcoin repository
-git init
-# IMPORTANT: Always use SSH URLs for git operations, never HTTPS
-git remote add origin git@github.com:qsbitcoin/qsbitcoin.git
+# 1. Fork Bitcoin Core on GitHub (via web interface)
+# 2. Clone your fork locally
+git clone git@github.com:qsbitcoin/qsbitcoin.git
+cd qsbitcoin
+
+# 3. Add upstream remote for syncing with Bitcoin Core updates
 git remote add upstream https://github.com/bitcoin/bitcoin.git
 
-# 2. Import Bitcoin Core source (choose one approach):
-# Option A: Direct import (recommended for fork)
-rm -rf bitcoin/.git
-git add bitcoin/
-git commit -m "Import Bitcoin Core source code"
+# 4. Work on master branch (or create feature branches as needed)
+# The fork is already named qsbitcoin, no need for a separate branch
 
-# Option B: Keep as submodule for tracking
-git submodule add https://github.com/bitcoin/bitcoin.git bitcoin
+# 5. Add QSBitcoin-specific files
+git add QSBITCOIN_PLAN.md QSBITCOIN_TASKS.md
+git commit -m "Initial QSBitcoin: Quantum-Safe Bitcoin fork"
 
-# 3. Push to origin (always use SSH)
+# 6. Push to origin (always use SSH)
 git push -u origin master
 
-# 4. Sync with upstream for updates
+# 7. To sync with Bitcoin Core updates later:
 git fetch upstream
-git merge upstream/master --allow-unrelated-histories
+git merge upstream/master
 ```
 
 ### Phase 1: Core Integration (Month 1-2)

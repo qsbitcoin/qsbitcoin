@@ -993,6 +993,12 @@ RPCHelpMan signrawtransactionwithwallet();
 // signmessage
 RPCHelpMan signmessage();
 
+// quantum
+RPCHelpMan getnewquantumaddress();
+RPCHelpMan validatequantumaddress();
+RPCHelpMan getquantuminfo();
+RPCHelpMan signmessagewithscheme();
+
 // transactions
 RPCHelpMan listreceivedbyaddress();
 RPCHelpMan listreceivedbylabel();
@@ -1021,11 +1027,13 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &getbalance},
         {"wallet", &gethdkeys},
         {"wallet", &getnewaddress},
+        {"wallet", &getnewquantumaddress},
         {"wallet", &getrawchangeaddress},
         {"wallet", &getreceivedbyaddress},
         {"wallet", &getreceivedbylabel},
         {"wallet", &gettransaction},
         {"wallet", &getbalances},
+        {"wallet", &getquantuminfo},
         {"wallet", &getwalletinfo},
         {"wallet", &importdescriptors},
         {"wallet", &importprunedfunds},
@@ -1053,11 +1061,13 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &settxfee},
         {"wallet", &setwalletflag},
         {"wallet", &signmessage},
+        {"wallet", &signmessagewithscheme},
         {"wallet", &signrawtransactionwithwallet},
         {"wallet", &simulaterawtransaction},
         {"wallet", &sendall},
         {"wallet", &unloadwallet},
         {"wallet", &upgradewallet},
+        {"wallet", &validatequantumaddress},
         {"wallet", &walletcreatefundedpsbt},
 #ifdef ENABLE_EXTERNAL_SIGNER
         {"wallet", &walletdisplayaddress},

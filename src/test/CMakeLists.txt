@@ -46,6 +46,7 @@ add_executable(test_bitcoin
   qs_signature_checker_tests.cpp
   quantum_consensus_tests.cpp
   quantum_fee_tests.cpp
+  quantum_rpc_tests.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
   descriptor_tests.cpp
