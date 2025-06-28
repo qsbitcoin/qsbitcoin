@@ -1000,7 +1000,6 @@ RPCHelpMan signrawtransactionwithwallet();
 RPCHelpMan signmessage();
 
 // quantum
-RPCHelpMan validatequantumaddress();
 RPCHelpMan getquantuminfo();
 
 // transactions
@@ -1069,7 +1068,6 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &sendall},
         {"wallet", &unloadwallet},
         {"wallet", &upgradewallet},
-        {"wallet", &validatequantumaddress},
         {"wallet", &walletcreatefundedpsbt},
 #ifdef ENABLE_EXTERNAL_SIGNER
         {"wallet", &walletdisplayaddress},

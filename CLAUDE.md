@@ -111,11 +111,10 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - Temporary QuantumKeyStore (migration to descriptors pending)
 
 **RPC Commands**:
-- `getnewquantumaddress` - Generate quantum addresses
-- `validatequantumaddress` - Validate and get algorithm info
+- `getnewaddress` - Generate addresses (use algorithm parameter for quantum: "ml-dsa" or "slh-dsa")
 - `getquantuminfo` - Wallet quantum capabilities
-- `signmessagewithscheme` - Sign messages with quantum schemes
-- `estimatequantumfee` - Fee estimation with discounts
+- `estimatesmartfee` - Fee estimation (use signature_type parameter for quantum discounts)
+- `estimatetxfee` - Transaction fee estimation for any signature type ("ecdsa", "ml-dsa", or "slh-dsa")
 
 ### Development Workflow
 
