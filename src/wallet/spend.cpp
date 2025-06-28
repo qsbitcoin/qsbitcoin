@@ -32,7 +32,6 @@
 #include <key_io.h>
 #include <quantum_address.h>
 #include <script/quantum_signature.h>
-#include <wallet/quantum_keystore.h>
 
 #include <cmath>
 

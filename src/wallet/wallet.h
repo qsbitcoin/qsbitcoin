@@ -657,7 +657,7 @@ public:
     bool SignTransaction(CMutableTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Sign the tx given the input coins and sighash. */
     bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const;
-    SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const;
+    SigningResult SignMessage(const std::string& message, const CTxDestination& dest, std::string& str_sig) const;
 
     /**
      * Fills out a PSBT with information from the wallet. Fills in UTXOs if we have
@@ -779,6 +779,7 @@ public:
     void MarkDestinationsDirty(const std::set<CTxDestination>& destinations) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     util::Result<CTxDestination> GetNewDestination(const OutputType type, const std::string label);
+    util::Result<CTxDestination> GetNewQuantumDestination(const quantum::SignatureSchemeID scheme_id, const std::string label);
     util::Result<CTxDestination> GetNewChangeDestination(const OutputType type);
 
     isminetype IsMine(const CTxDestination& dest) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);

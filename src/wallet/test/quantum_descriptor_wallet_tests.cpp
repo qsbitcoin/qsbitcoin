@@ -4,7 +4,6 @@
 
 #include <wallet/wallet.h>
 #include <wallet/test/wallet_test_fixture.h>
-#include <wallet/quantum_keystore.h>
 #include <wallet/quantum_descriptor_util.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/context.h>
@@ -28,11 +27,8 @@ BOOST_AUTO_TEST_CASE(quantum_descriptor_signing_provider)
     quantum::CQuantumPubKey quantum_pubkey = quantum_key->GetPubKey();
     CKeyID keyid = quantum_pubkey.GetID();
     
-    // Add to global keystore
-    if (!g_quantum_keystore) {
-        g_quantum_keystore = std::make_unique<QuantumKeyStore>();
-    }
-    g_quantum_keystore->AddQuantumKey(keyid, std::move(quantum_key));
+    // For testing, we'll need to create a descriptor wallet and add the key properly
+    // This test needs refactoring to use descriptor wallet infrastructure
     
     // Create quantum descriptor
     std::string pubkey_hex = HexStr(quantum_pubkey.GetKeyData());
@@ -87,11 +83,8 @@ BOOST_AUTO_TEST_CASE(quantum_descriptor_with_signing_provider)
     quantum::CQuantumPubKey quantum_pubkey = quantum_key->GetPubKey();
     CKeyID keyid = quantum_pubkey.GetID();
     
-    // Add to global keystore
-    if (!g_quantum_keystore) {
-        g_quantum_keystore = std::make_unique<QuantumKeyStore>();
-    }
-    g_quantum_keystore->AddQuantumKey(keyid, std::move(quantum_key));
+    // For testing, we'll need to create a descriptor wallet and add the key properly
+    // This test needs refactoring to use descriptor wallet infrastructure
     
     // Create quantum pubkey hash descriptor
     std::string pubkey_hex = HexStr(quantum_pubkey.GetKeyData());

@@ -19,9 +19,9 @@
 #include <util/translation.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/quantum_descriptor_util.h>
-#include <wallet/quantum_keystore.h>
 #include <script/quantum_witness.h>
 #include <crypto/sha256.h>
+#include <common/signmessage.h>
 
 #include <optional>
 
@@ -1373,22 +1373,87 @@ bool DescriptorScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const s
     return ::SignTransaction(tx, keys.get(), coins, sighash, input_errors);
 }
 
-SigningResult DescriptorScriptPubKeyMan::SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const
+SigningResult DescriptorScriptPubKeyMan::SignMessage(const std::string& message, const CTxDestination& dest, std::string& str_sig) const
 {
-    std::unique_ptr<FlatSigningProvider> keys = GetSigningProvider(GetScriptForDestination(pkhash), true);
-    if (!keys) {
-        return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
-    }
+    LOCK(cs_desc_man);
+    
+    // Handle P2PKH addresses (standard ECDSA)
+    if (auto pkhash = std::get_if<PKHash>(&dest)) {
+        std::unique_ptr<FlatSigningProvider> keys = GetSigningProvider(GetScriptForDestination(*pkhash), true);
+        if (!keys) {
+            return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
+        }
 
-    CKey key;
-    if (!keys->GetKey(ToKeyID(pkhash), key)) {
-        return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
-    }
+        CKey key;
+        if (!keys->GetKey(ToKeyID(*pkhash), key)) {
+            return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
+        }
 
-    if (!MessageSign(key, message, str_sig)) {
-        return SigningResult::SIGNING_FAILED;
+        if (!MessageSign(key, message, str_sig)) {
+            return SigningResult::SIGNING_FAILED;
+        }
+        return SigningResult::OK;
     }
-    return SigningResult::OK;
+    
+    // Handle P2WSH addresses (potential quantum addresses)
+    if (auto witness_script_hash = std::get_if<WitnessV0ScriptHash>(&dest)) {
+        // Search for quantum key that matches this witness script hash
+        for (const auto& [keyid, quantum_key] : m_map_quantum_keys) {
+            if (!quantum_key) continue;
+            
+            // Get the public key and create witness script
+            quantum::CQuantumPubKey pubkey = quantum_key->GetPubKey();
+            CScript witness_script = quantum::CreateQuantumWitnessScript(pubkey);
+            
+            // Calculate the SHA256 of the witness script
+            uint256 hash;
+            CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(hash.begin());
+            
+            // Check if this matches our target witness script hash
+            if (hash == uint256(*witness_script_hash)) {
+                // Found the quantum key - sign with it
+                uint256 message_hash = MessageHash(message);
+                std::vector<unsigned char> vchSig;
+                
+                if (!quantum_key->Sign(message_hash, vchSig)) {
+                    return SigningResult::SIGNING_FAILED;
+                }
+                
+                // For quantum signatures, we need to include the public key
+                // since it cannot be recovered from the signature like ECDSA
+                std::vector<unsigned char> quantum_sig_with_pubkey;
+                
+                // Add a version byte to identify this as a quantum signature with pubkey
+                quantum_sig_with_pubkey.push_back(0x01); // Version 1
+                
+                // Add the key type
+                quantum_sig_with_pubkey.push_back(static_cast<unsigned char>(pubkey.GetType()));
+                
+                // Add pubkey size (2 bytes, big-endian)
+                const auto& pubkey_data = pubkey.GetKeyData();
+                quantum_sig_with_pubkey.push_back((pubkey_data.size() >> 8) & 0xFF);
+                quantum_sig_with_pubkey.push_back(pubkey_data.size() & 0xFF);
+                
+                // Add the public key
+                quantum_sig_with_pubkey.insert(quantum_sig_with_pubkey.end(), 
+                                               pubkey_data.begin(), pubkey_data.end());
+                
+                // Add signature size (2 bytes, big-endian)
+                quantum_sig_with_pubkey.push_back((vchSig.size() >> 8) & 0xFF);
+                quantum_sig_with_pubkey.push_back(vchSig.size() & 0xFF);
+                
+                // Add the signature
+                quantum_sig_with_pubkey.insert(quantum_sig_with_pubkey.end(), 
+                                               vchSig.begin(), vchSig.end());
+                
+                // Encode the complete package as base64
+                str_sig = EncodeBase64(quantum_sig_with_pubkey);
+                return SigningResult::OK;
+            }
+        }
+    }
+    
+    return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
 }
 
 std::optional<PSBTError> DescriptorScriptPubKeyMan::FillPSBT(PartiallySignedTransaction& psbtx, const PrecomputedTransactionData& txdata, std::optional<int> sighash_type, bool sign, bool bip32derivs, int* n_signed, bool finalize) const

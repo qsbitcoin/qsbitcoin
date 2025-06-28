@@ -12,7 +12,6 @@
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
-#include <wallet/quantum_keystore.h>
 
 using interfaces::FoundBlock;
 

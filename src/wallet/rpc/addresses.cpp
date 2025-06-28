@@ -14,7 +14,7 @@
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
-#include <wallet/quantum_keystore.h>
+#include <crypto/quantum_key.h>
 
 #include <univalue.h>
 
@@ -29,13 +29,17 @@ RPCHelpMan getnewaddress()
                 {
                     {"label", RPCArg::Type::STR, RPCArg::Default{""}, "The label name for the address to be linked to. It can also be set to the empty string \"\" to represent the default label. The label does not need to exist, it will be created if there is no label by the given name."},
                     {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -addresstype"}, "The address type to use. Options are \"legacy\", \"p2sh-segwit\", \"bech32\", and \"bech32m\"."},
+                    {"algorithm", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "The signature algorithm to use for quantum-safe addresses. Options are \"ml-dsa\" (ML-DSA-65, recommended) or \"slh-dsa\" (SLH-DSA-192f, high security). If specified, creates a quantum-safe address using P2WSH."},
                 },
                 RPCResult{
                     RPCResult::Type::STR, "address", "The new bitcoin address"
                 },
                 RPCExamples{
                     HelpExampleCli("getnewaddress", "")
+            + HelpExampleCli("getnewaddress", "\"\" \"bech32\" \"ml-dsa\"") 
+            + HelpExampleCli("getnewaddress", "\"my_quantum_wallet\" \"bech32\" \"slh-dsa\"")
             + HelpExampleRpc("getnewaddress", "")
+            + HelpExampleRpc("getnewaddress", "\"\", \"bech32\", \"ml-dsa\"")
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
@@ -60,6 +64,33 @@ RPCHelpMan getnewaddress()
         output_type = parsed.value();
     }
 
+    // Check if quantum algorithm is specified
+    if (!request.params[2].isNull()) {
+        std::string algo = request.params[2].get_str();
+        quantum::SignatureSchemeID scheme_id;
+        
+        if (algo == "ml-dsa") {
+            scheme_id = quantum::SCHEME_ML_DSA_65;
+        } else if (algo == "slh-dsa") {
+            scheme_id = quantum::SCHEME_SLH_DSA_192F;
+        } else {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Unknown signature algorithm '%s'. Must be either 'ml-dsa' or 'slh-dsa'.", algo));
+        }
+        
+        // Quantum addresses must use witness scripts (bech32)
+        if (output_type != OutputType::BECH32) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Quantum addresses require bech32 address type");
+        }
+        
+        // Generate quantum address
+        auto op_dest = pwallet->GetNewQuantumDestination(scheme_id, label);
+        if (!op_dest) {
+            throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, util::ErrorString(op_dest).original);
+        }
+        
+        return EncodeDestination(*op_dest);
+    }
+
     auto op_dest = pwallet->GetNewDestination(output_type, label);
     if (!op_dest) {
         throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, util::ErrorString(op_dest).original);
@@ -78,13 +109,16 @@ RPCHelpMan getrawchangeaddress()
                 "This is for use with raw transactions, NOT normal use.\n",
                 {
                     {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The address type to use. Options are \"legacy\", \"p2sh-segwit\", \"bech32\", and \"bech32m\"."},
+                    {"algorithm", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "The signature algorithm to use for quantum-safe addresses. Options are \"ml-dsa\" (ML-DSA-65, recommended) or \"slh-dsa\" (SLH-DSA-192f, high security). If specified, creates a quantum-safe address using P2WSH."},
                 },
                 RPCResult{
                     RPCResult::Type::STR, "address", "The address"
                 },
                 RPCExamples{
                     HelpExampleCli("getrawchangeaddress", "")
+            + HelpExampleCli("getrawchangeaddress", "\"bech32\" \"ml-dsa\"")
             + HelpExampleRpc("getrawchangeaddress", "")
+            + HelpExampleRpc("getrawchangeaddress", "\"bech32\", \"ml-dsa\"")
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
@@ -104,6 +138,33 @@ RPCHelpMan getrawchangeaddress()
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Unknown address type '%s'", request.params[0].get_str()));
         }
         output_type = parsed.value();
+    }
+
+    // Check if quantum algorithm is specified
+    if (!request.params[1].isNull()) {
+        std::string algo = request.params[1].get_str();
+        quantum::SignatureSchemeID scheme_id;
+        
+        if (algo == "ml-dsa") {
+            scheme_id = quantum::SCHEME_ML_DSA_65;
+        } else if (algo == "slh-dsa") {
+            scheme_id = quantum::SCHEME_SLH_DSA_192F;
+        } else {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Unknown signature algorithm '%s'. Must be either 'ml-dsa' or 'slh-dsa'.", algo));
+        }
+        
+        // Quantum addresses must use witness scripts (bech32)
+        if (output_type != OutputType::BECH32) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Quantum addresses require bech32 address type");
+        }
+        
+        // Generate quantum change address (with empty label for change addresses)
+        auto op_dest = pwallet->GetNewQuantumDestination(scheme_id, "");
+        if (!op_dest) {
+            throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, util::ErrorString(op_dest).original);
+        }
+        
+        return EncodeDestination(*op_dest);
     }
 
     auto op_dest = pwallet->GetNewChangeDestination(output_type);

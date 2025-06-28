@@ -3,7 +3,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/quantum_descriptor_util.h>
-#include <wallet/quantum_keystore.h>
 #include <wallet/scriptpubkeyman.h>
 #include <script/solver.h>
 #include <script/quantum_witness.h>
@@ -41,34 +40,7 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
             }
         }
         
-        // If not found in provider, check the global quantum keystore
-        if (!found && g_quantum_keystore) {
-            // For witness scripts, we need to check all stored scripts
-            // and find one whose SHA256 hash matches the target
-            // This is inefficient but necessary since we can't directly
-            // construct a CScriptID from the witness program hash
-            std::vector<CKeyID> all_keys = g_quantum_keystore->GetAllKeyIDs();
-            for (const auto& keyid : all_keys) {
-                quantum::CQuantumPubKey pubkey;
-                if (g_quantum_keystore->GetQuantumPubKey(keyid, pubkey)) {
-                    // Create the witness script for this key
-                    CScript test_witness_script = quantum::CreateQuantumWitnessScript(pubkey);
-                    
-                    // Calculate its SHA256 hash
-                    uint256 test_hash;
-                    CSHA256().Write(test_witness_script.data(), test_witness_script.size()).Finalize(test_hash.begin());
-                    
-                    if (test_hash == target_hash) {
-                        witness_script = test_witness_script;
-                        found = true;
-                        // Also add this script to the provider for future use
-                        CScriptID scriptID(witness_script);
-                        provider.scripts[scriptID] = witness_script;
-                        break;
-                    }
-                }
-            }
-        }
+        // Witness scripts should be in the provider from the descriptor
         
         if (found) {
             
@@ -106,10 +78,7 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
                                     have_key = desc_spkm->GetQuantumKey(keyid, &qkey);
                                 }
                                 
-                                // Fall back to global keystore
-                                if (!have_key && g_quantum_keystore) {
-                                    have_key = g_quantum_keystore->GetQuantumKey(keyid, &qkey);
-                                }
+                                // Only use descriptor SPKM keys
                                 
                                 if (have_key && qkey) {
                                     // Store pointer to the quantum key in provider
@@ -140,8 +109,6 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
         
         if (desc_spkm) {
             have_pubkey = desc_spkm->GetQuantumPubKey(keyid, pubkey);
-        } else if (g_quantum_keystore) {
-            have_pubkey = g_quantum_keystore->GetQuantumPubKey(keyid, pubkey);
         }
         
         if (have_pubkey) {
@@ -154,8 +121,6 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
                 
                 if (desc_spkm) {
                     have_key = desc_spkm->GetQuantumKey(keyid, &key);
-                } else if (g_quantum_keystore) {
-                    have_key = g_quantum_keystore->GetQuantumKey(keyid, &key);
                 }
                 
                 if (have_key && key) {
@@ -180,8 +145,6 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
         
         if (desc_spkm) {
             have_pubkey = desc_spkm->GetQuantumPubKey(keyid, pubkey);
-        } else if (g_quantum_keystore) {
-            have_pubkey = g_quantum_keystore->GetQuantumPubKey(keyid, pubkey);
         }
         
         if (have_pubkey) {
@@ -194,8 +157,6 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
                 
                 if (desc_spkm) {
                     have_key = desc_spkm->GetQuantumKey(keyid, &key);
-                } else if (g_quantum_keystore) {
-                    have_key = g_quantum_keystore->GetQuantumKey(keyid, &key);
                 }
                 
                 if (have_key && key) {

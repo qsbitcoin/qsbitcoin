@@ -17,7 +17,6 @@ add_library(bitcoin_wallet STATIC EXCLUDE_FROM_ALL
   load.cpp
   migrate.cpp
   quantum_descriptor_util.cpp
-  quantum_keystore.cpp
   quantum_wallet_setup.cpp
   receive.cpp
   rpc/addresses.cpp

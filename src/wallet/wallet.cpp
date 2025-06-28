@@ -70,6 +70,9 @@
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
 #include <wallet/quantum_wallet_setup.h>
+#include <crypto/quantum_key.h>
+#include <script/quantum_signature.h>
+#include <script/quantum_witness.h>
 
 #include <algorithm>
 #include <cassert>
@@ -2146,14 +2149,14 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
     return {};
 }
 
-SigningResult CWallet::SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const
+SigningResult CWallet::SignMessage(const std::string& message, const CTxDestination& dest, std::string& str_sig) const
 {
     SignatureData sigdata;
-    CScript script_pub_key = GetScriptForDestination(pkhash);
+    CScript script_pub_key = GetScriptForDestination(dest);
     for (const auto& spk_man_pair : m_spk_managers) {
         if (spk_man_pair.second->CanProvide(script_pub_key, sigdata)) {
             LOCK(cs_wallet);  // DescriptorScriptPubKeyMan calls IsLocked which can lock cs_wallet in a deadlocking order
-            return spk_man_pair.second->SignMessage(message, pkhash, str_sig);
+            return spk_man_pair.second->SignMessage(message, dest, str_sig);
         }
     }
     return SigningResult::PRIVATE_KEY_NOT_AVAILABLE;
@@ -2470,6 +2473,72 @@ util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, c
     }
 
     return op_dest;
+}
+
+util::Result<CTxDestination> CWallet::GetNewQuantumDestination(const quantum::SignatureSchemeID scheme_id, const std::string label)
+{
+    LOCK(cs_wallet);
+    
+    if (!IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
+        return util::Error{_("Quantum addresses require descriptor wallets")};
+    }
+    
+    // Generate quantum key
+    auto key = std::make_unique<quantum::CQuantumKey>();
+    quantum::KeyType key_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 
+        quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+    
+    key->MakeNewKey(key_type);
+    if (!key->IsValid()) {
+        return util::Error{_("Failed to generate quantum key")};
+    }
+    
+    // Get the public key
+    quantum::CQuantumPubKey pubkey = key->GetPubKey();
+    CKeyID keyid = pubkey.GetID();
+    
+    // Add to descriptor SPKM
+    bool added_to_spkm = false;
+    DescriptorScriptPubKeyMan* quantum_spkm_used = nullptr;
+    
+    for (auto& spkm : GetAllScriptPubKeyMans()) {
+        auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
+        if (desc_spkm) {
+            if (desc_spkm->AddQuantumKey(keyid, std::move(key))) {
+                added_to_spkm = true;
+                quantum_spkm_used = desc_spkm;
+                break;
+            }
+        }
+    }
+    
+    if (!added_to_spkm) {
+        return util::Error{_("Failed to add quantum key to wallet")};
+    }
+    
+    // Create the witness script and P2WSH address
+    CScript witnessScript = quantum::CreateQuantumWitnessScript(pubkey);
+    CScript scriptPubKey = quantum::CreateQuantumP2WSH(pubkey);
+    
+    // Extract the witness script hash to create a destination
+    std::vector<unsigned char> witnessprogram;
+    int witnessversion;
+    if (!scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) || 
+        witnessversion != 0 || witnessprogram.size() != 32) {
+        return util::Error{_("Failed to create valid P2WSH script")};
+    }
+    
+    CTxDestination dest = WitnessV0ScriptHash(uint256(witnessprogram));
+    
+    // Add the script so it's recognized as "mine"
+    if (quantum_spkm_used) {
+        quantum_spkm_used->AddScriptPubKey(scriptPubKey);
+    }
+    
+    // Add to address book
+    SetAddressBook(dest, label, AddressPurpose::RECEIVE);
+    
+    return dest;
 }
 
 util::Result<CTxDestination> CWallet::GetNewChangeDestination(const OutputType type)

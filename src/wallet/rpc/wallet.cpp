@@ -1000,10 +1000,8 @@ RPCHelpMan signrawtransactionwithwallet();
 RPCHelpMan signmessage();
 
 // quantum
-RPCHelpMan getnewquantumaddress();
 RPCHelpMan validatequantumaddress();
 RPCHelpMan getquantuminfo();
-RPCHelpMan signmessagewithscheme();
 
 // transactions
 RPCHelpMan listreceivedbyaddress();
@@ -1033,7 +1031,6 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &getbalance},
         {"wallet", &gethdkeys},
         {"wallet", &getnewaddress},
-        {"wallet", &getnewquantumaddress},
         {"wallet", &getrawchangeaddress},
         {"wallet", &getreceivedbyaddress},
         {"wallet", &getreceivedbylabel},
@@ -1067,7 +1064,6 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &settxfee},
         {"wallet", &setwalletflag},
         {"wallet", &signmessage},
-        {"wallet", &signmessagewithscheme},
         {"wallet", &signrawtransactionwithwallet},
         {"wallet", &simulaterawtransaction},
         {"wallet", &sendall},
