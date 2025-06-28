@@ -164,14 +164,8 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
             UniValue obj(UniValue::VOBJ);
             if (fIsWatchonly) obj.pushKV("involvesWatchonly", true);
             
-            // Check if this is a quantum address and encode appropriately
+            // Encode address (quantum addresses now use standard bech32 format)
             std::string encoded_address = EncodeDestination(address);
-            if (g_quantum_keystore) {
-                int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(address);
-                if (quantum_type > 0) {
-                    encoded_address = EncodeQuantumDestination(address, quantum_type);
-                }
-            }
             
             obj.pushKV("address",       encoded_address);
             obj.pushKV("amount",        ValueFromAmount(nAmount));
@@ -316,15 +310,8 @@ RPCHelpMan listreceivedbylabel()
 static void MaybePushAddress(UniValue & entry, const CTxDestination &dest, const CWallet* pwallet = nullptr)
 {
     if (IsValidDestination(dest)) {
+        // Encode address (quantum addresses now use standard bech32 format)
         std::string address = EncodeDestination(dest);
-        
-        // Check if this is a quantum address and encode appropriately
-        if (pwallet && g_quantum_keystore) {
-            int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(dest);
-            if (quantum_type > 0) {
-                address = EncodeQuantumDestination(dest, quantum_type);
-            }
-        }
         
         entry.pushKV("address", address);
     }

@@ -114,13 +114,8 @@ std::vector<std::pair<CTxDestination, CAmount>> ParseOutputs(const UniValue& out
             CAmount amount{0};
             parsed_outputs.emplace_back(destination, amount);
         } else {
-            // Try to decode as quantum address first, then fall back to regular
-            CTxDestination destination;
-            if (IsQuantumAddress(name_)) {
-                destination = DecodeQuantumDestination(name_);
-            } else {
-                destination = DecodeDestination(name_);
-            }
+            // Decode address (quantum addresses now use standard bech32 format)
+            CTxDestination destination = DecodeDestination(name_);
             CAmount amount{AmountFromValue(outputs[name_])};
             if (!IsValidDestination(destination)) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string("Invalid Bitcoin address: ") + name_);

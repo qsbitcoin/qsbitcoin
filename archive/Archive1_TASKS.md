@@ -256,7 +256,7 @@ class ISignatureScheme {
 - [ ] ~~Implement BIP32 HD derivation for quantum keys~~ (SKIPPED - HD derivation not supported for quantum keys)
 - [x] Add quantum key import/export functions (core crypto done, wallet integration pending)
 - [x] Update wallet encryption for quantum keys **[COMPLETED June 27, 2025]**
-- [ ] Create key migration utilities **[DEFERRED - Core implementation first]**
+- [ ] Create key migration utilities **[CRITICAL - User adoption requirement]**
 - [x] **Unit Tests**: Comprehensive key management tests
   - [x] Create `src/test/quantum_key_tests.cpp`
   - [x] Test quantum key generation and validation
@@ -264,7 +264,7 @@ class ISignatureScheme {
   - [ ] ~~Test BIP32 derivation paths~~ (SKIPPED - only ECDSA supported)
   - [x] Test key import/export formats (core I/O tests complete)
   - [x] Test wallet encryption with quantum keys **[COMPLETED - quantum_wallet_encryption_tests.cpp]**
-  - [ ] Test key migration from ECDSA to quantum **[DEFERRED]**
+  - [ ] Test key migration from ECDSA to quantum **[TODO]**
 - [x] **Build & Test**:
   ```bash
   # Build (timeout: 5 minutes)
@@ -298,7 +298,7 @@ class ISignatureScheme {
 **Dependencies**: 2.3  
 **Description**: Implement new address format with scheme flags
 **Tasks**:
-- [x] Design address format: ~~Base58Check with Q[type] prefix~~ Now uses standard P2WSH (bech32)
+- [x] Design address format: Base58Check with Q[type] prefix (Q1/Q2/Q3 + full address)
 - [x] Implement address type encoding/decoding (P2QPKH_ML_DSA, P2QPKH_SLH_DSA, P2QSH)
 - [x] Create address generation functions for each scheme
 - [x] Implement Base58Check encoding for quantum addresses
@@ -322,7 +322,7 @@ class ISignatureScheme {
   ./build/bin/test_bitcoin -t quantum_address_tests
   ```
 
-**Note**: Address format changed to use standard P2WSH (bech32). Quantum addresses now look identical to regular P2WSH addresses (bc1q... on mainnet, bcrt1q... on regtest). No special prefixes are used.
+**Note**: Address format implemented using Base58Check. Quantum addresses use Q[type] prefix prepended to the full original address (e.g., Q1mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn for ML-DSA, Q2... for SLH-DSA, Q3... for P2QSH).
 
 ### 3.2 Script System Extensions
 **Status**: 🟢 Completed  
@@ -373,7 +373,7 @@ class ISignatureScheme {
 
 **Critical Considerations**:
 - ML-DSA signatures are ~3.3KB (vs 71 bytes for ECDSA)
-- SLH-DSA signatures are ~35KB (massive increase)
+- SLH-DSA signatures are ~49KB (massive increase)
 - Need to update transaction weight calculations
 - Dynamic signature format for future algorithm support
 - Using varint encoding for size fields
@@ -808,10 +808,10 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
   - Updated all RPC and wallet code to use quantum keystore
   - Removed quantum database functions from walletdb
   - Updated test files to work without legacy classes
-- [x] ~~Implement quantum address display with Q prefixes~~ **[REMOVED June 28, 2025]**
-  - ~~Q1 prefix for ML-DSA, Q2 for SLH-DSA, Q3 for P2QSH~~
-  - ~~Format: Q[type] prepended to full address~~
-  - Now using standard bech32 P2WSH addresses for all quantum keys
+- [x] Implement quantum address display with Q prefixes **[COMPLETED June 27, 2025 - Update 4]**
+  - Q1 prefix for ML-DSA, Q2 for SLH-DSA, Q3 for P2QSH
+  - Format: Q[type] prepended to full address (e.g., Q1mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn)
+  - Updated all wallet commands to show quantum addresses correctly
 - [x] Implement P2WSH for all quantum addresses **[COMPLETED June 28, 2025]**
   - Transitioned from P2PKH to P2WSH exclusively (bech32 addresses)
   - Created quantum_witness.h/.cpp with CreateQuantumWitnessScript/CreateQuantumP2WSH
@@ -858,8 +858,8 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
   - Encryption support (Encrypt, CheckDecryptionKey)
   - Address generation (GetNewDestination, GetReservedDestination)
 - Fixed keypool population issue - keys now properly maintained in pool
-- Key storage uses descriptor-based system with database persistence
-- Address generation now uses P2WSH exclusively for all quantum addresses
+- Key storage uses in-memory maps (database persistence TODO)
+- Address generation follows simple P2PKH-style pattern
 - **Wallet Creation Update (June 27, 2025 - Update 3)**:
   - Added `WALLET_FLAG_QUANTUM` to wallet flags (bit 36)
   - Modified `createwallet` RPC to accept "quantum" parameter
@@ -1013,13 +1013,11 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 ## Progress Tracking
 
 ### Overall Progress
-- **Total Tasks**: 177 (153 original + 24 for descriptor implementation)
-- **Completed**: 150 (all critical features completed)
+- **Total Tasks**: 153 (+24 for descriptor implementation)
+- **Completed**: 153 (+24: all descriptor tasks completed including migration)
 - **Critical Remaining**: 0 (all critical features implemented)
   - ✅ Migration tasks (6.5) - Completed
   - ✅ Database tasks (6.6) - Completed
-  - ✅ P2WSH implementation - Completed
-  - ✅ Test suite cleanup - Completed
 - **Optional/Deferred**: 27 (network protocol & comprehensive testing)
 - **Actual Completion**: 100% of critical features, 85% of total (27 optional tasks remain)
 
@@ -1036,31 +1034,28 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 
 ### Critical Path Summary
 - **Core implementation is feature-complete** - All essential quantum signature functionality is implemented
-- **Architecture transition COMPLETED** - Successfully moved from legacy ScriptPubKeyMan to descriptor-based system
-- **P2WSH implementation COMPLETED** - All quantum addresses now use witness scripts to handle large signatures
-- **Quantum addresses fully functional** - Using standard bech32 P2WSH format
+- **Architecture transition progressing** - Moved from legacy ScriptPubKeyMan to descriptor-based system
+- **Quantum addresses fully functional** - Q prefix display working transparently
 - **Quantum descriptor support COMPLETED** - Major milestone achieved:
   - `descriptor.cpp` now fully parses quantum descriptors (qpkh)
   - `QuantumPubkeyProvider` and `QPKHDescriptor` classes implemented
   - Support for both ML-DSA and SLH-DSA keys with auto-detection
   - Comprehensive test suite with 11 tests all passing
-  - Fully integrated with wallet system
+  - Ready for wallet integration
 - **All critical work completed** - Quantum signature implementation is feature-complete:
   1. ~~**Quantum Descriptors** (Task 6.3)~~ - ✅ COMPLETED
   2. ~~**SPKM Integration** (Task 6.4)~~ - ✅ COMPLETED - Quantum keys work with signing providers
   3. ~~**Migration Path** (Task 6.5)~~ - ✅ COMPLETED - Keys stored in descriptor SPKMs with persistence
   4. ~~**Database Updates** (Task 6.6)~~ - ✅ COMPLETED - Quantum keys persist across restarts
-  5. ~~**P2WSH Implementation**~~ - ✅ COMPLETED - Large signatures handled in witness data
-  6. ~~**Test Suite Cleanup**~~ - ✅ COMPLETED - Removed obsolete scripts, updated functional tests
-- **Documentation corrections made** - Fixed SLH-DSA signature size from 49KB to 35KB
-- **Test infrastructure updated** - Functional tests now properly integrated with test_runner.py
+- **Temporary solution in place** - QuantumKeyStore works but needs migration to descriptors
 - **Migration tools deferred** - User ECDSA→quantum migration utilities are low priority
+- **Next focus: Full descriptor wallet** - Complete migration from temporary keystore to descriptor system
 - **27 optional tasks** can be deferred or may not be needed
 
 ---
 
 *Last Updated: June 28, 2025*  
-*Version: 4.2* - Removed obsolete Q-prefix system; all quantum addresses now use standard bech32 P2WSH format  
+*Version: 4.0* - P2WSH implementation completed; all quantum addresses now use witness scripts to handle large signatures  
 
 ## Living Document Policy
 

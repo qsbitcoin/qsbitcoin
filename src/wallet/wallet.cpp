@@ -69,6 +69,7 @@
 #include <wallet/types.h>
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
+#include <wallet/quantum_wallet_setup.h>
 
 #include <algorithm>
 #include <cassert>
@@ -3544,7 +3545,8 @@ void CWallet::SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch)
 
     SetupDescriptorScriptPubKeyMans(batch, master_key);
     
-    // Quantum support will be integrated with descriptors in the future
+    // Quantum descriptors will be created on-demand when needed
+    // This avoids issues with output type handling during wallet creation
 }
 
 

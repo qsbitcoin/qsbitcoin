@@ -359,6 +359,9 @@ public:
 
     //! Setup descriptors based on the given CExtkey
     bool SetupDescriptorGeneration(WalletBatch& batch, const CExtKey& master_key, OutputType addr_type, bool internal);
+    
+    //! Setup quantum descriptor without HD derivation
+    bool SetupQuantumDescriptor(WalletBatch& batch, const WalletDescriptor& desc);
 
     bool HavePrivateKeys() const override;
     bool HasPrivKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
@@ -399,6 +402,8 @@ public:
     bool GetQuantumPubKey(const CKeyID& keyid, quantum::CQuantumPubKey& pubkey) const override;
     bool HaveQuantumKey(const CKeyID& keyid) const override;
     size_t GetQuantumKeyCount() const;
+    void GetQuantumKeyIDs(std::vector<CKeyID>& keyids) const;
+    void AddScriptPubKey(const CScript& script);
 
     bool HasWalletDescriptor(const WalletDescriptor& desc) const;
     util::Result<void> UpdateWalletDescriptor(WalletDescriptor& descriptor);

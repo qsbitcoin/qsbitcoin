@@ -42,7 +42,7 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 enum SignatureSchemeID : uint8_t {
     SCHEME_ECDSA = 0x00,        // Legacy ECDSA
     SCHEME_ML_DSA_65 = 0x01,    // ML-DSA-65 (~3.3KB signatures)
-    SCHEME_SLH_DSA_192F = 0x02, // SLH-DSA-192f (~35KB signatures)
+    SCHEME_SLH_DSA_192F = 0x02, // SLH-DSA-192f (~49KB signatures)
     // Reserved for future quantum-safe algorithms
     SCHEME_ML_DSA_87 = 0x03,    // Future: ML-DSA-87 (~4.6KB)
     SCHEME_FALCON_512 = 0x04,   // Future: Falcon-512
@@ -334,7 +334,7 @@ target_link_libraries(bitcoind PRIVATE oqs)
 ### Technical Discoveries
 1. **ML-DSA Key Format** - Public key is not simply first bytes of private key (requires OQS_SIG_ml_dsa_65_keypair)
 2. **Script Validation** - Quantum opcodes must check SCRIPT_VERIFY_QUANTUM_SIGS flag before execution
-3. **Transaction Size** - ML-DSA signatures are ~3.3KB, SLH-DSA are ~35KB - significant impact on block space
+3. **Transaction Size** - ML-DSA signatures are ~3.3KB, SLH-DSA are ~49KB - significant impact on block space
 4. **Dynamic Signature Support** - Using varint encoding for signature/pubkey lengths enables future algorithm additions without consensus changes
 5. **Weight Calculation** - Transaction weight formula needs adjustment for large signatures to maintain fee proportionality
 6. **Quantum Key Encryption** - Standard AES-256-CBC encryption works for quantum keys; use pubkey hash as IV for deterministic encryption

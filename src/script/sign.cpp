@@ -14,6 +14,8 @@
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
+#include <script/quantum_signature.h>
+#include <script/quantum_witness.h>
 #include <uint256.h>
 #include <util/translation.h>
 #include <util/vector.h>
@@ -38,6 +40,52 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
 {
     assert(sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0);
 
+    // First try to get a quantum key
+    const quantum::CQuantumKey* qkey = nullptr;
+    if (provider.GetQuantumKey(address, const_cast<quantum::CQuantumKey**>(&qkey)) && qkey) {
+        LogPrintf("CreateSig: Found quantum key for address %s\n", address.ToString());
+        
+        // Create quantum signature
+        const int hashtype = nHashType == SIGHASH_DEFAULT ? SIGHASH_ALL : nHashType;
+        uint256 hash = SignatureHash(scriptCode, m_txto, nIn, hashtype, amount, sigversion, m_txdata);
+        
+        // Sign with quantum key - need non-const for signing
+        quantum::CQuantumKey* mutable_qkey = const_cast<quantum::CQuantumKey*>(qkey);
+        std::vector<unsigned char> qsig;
+        LogPrintf("CreateSig: About to sign with quantum key type=%d\n", (int)mutable_qkey->GetType());
+        if (!mutable_qkey->Sign(hash, qsig)) {
+            LogPrintf("CreateSig: Quantum signing failed\n");
+            return false;
+        }
+        LogPrintf("CreateSig: Quantum signing successful, signature size=%d\n", qsig.size());
+        
+        // For witness scripts (P2WSH), we return just the raw signature with hash type
+        // The pubkey will be pushed separately by SignStep
+        if (sigversion == SigVersion::WITNESS_V0) {
+            vchSig = qsig;
+            vchSig.push_back((unsigned char)hashtype);
+            LogPrintf("CreateSig: Created raw quantum signature for witness, size=%d bytes\n", vchSig.size());
+            return true;
+        }
+        
+        // For legacy scripts, we need the full serialized QuantumSignature
+        // (This path should not be used anymore since we only support P2WSH for quantum)
+        quantum::CQuantumPubKey qpubkey = mutable_qkey->GetPubKey();
+        quantum::QuantumSignature quantumSig;
+        quantumSig.scheme_id = (mutable_qkey->GetType() == quantum::KeyType::ML_DSA_65) ? 
+                              quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
+        quantumSig.signature = qsig;
+        quantumSig.pubkey = qpubkey.GetKeyData();
+        
+        // Serialize the quantum signature
+        quantumSig.Serialize(vchSig);
+        vchSig.push_back((unsigned char)hashtype);
+        
+        LogPrintf("CreateSig: Created serialized quantum signature, size=%d bytes\n", vchSig.size());
+        return true;
+    }
+
+    // Fall back to regular ECDSA
     CKey key;
     if (!provider.GetKey(address, key))
         return false;
@@ -410,6 +458,40 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
 
     switch (whichTypeRet) {
     case TxoutType::NONSTANDARD:
+        // Check if this is a quantum witness script
+        if (sigversion == SigVersion::WITNESS_V0) {
+            // Parse the script to check for quantum opcodes
+            CScript::const_iterator pc = scriptPubKey.begin();
+            std::vector<unsigned char> vchPubKey;
+            opcodetype opcode;
+            
+            // Try to match: <pubkey> OP_CHECKSIG_ML_DSA or <pubkey> OP_CHECKSIG_SLH_DSA
+            if (scriptPubKey.GetOp(pc, opcode, vchPubKey) && !vchPubKey.empty() &&
+                scriptPubKey.GetOp(pc, opcode) && 
+                (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) &&
+                pc == scriptPubKey.end()) {
+                
+                // This is a quantum witness script
+                quantum::KeyType keyType = (opcode == OP_CHECKSIG_ML_DSA) ? 
+                    quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+                quantum::CQuantumPubKey qPubKey(keyType, vchPubKey);
+                
+                if (qPubKey.IsValid()) {
+                    CKeyID keyID = qPubKey.GetID();
+                    
+                    // Create signature using the quantum key
+                    if (!creator.CreateSig(provider, sig, keyID, scriptPubKey, sigversion)) {
+                        return false;
+                    }
+                    
+                    // For witness, push signature and pubkey as separate elements
+                    ret.push_back(std::move(sig));
+                    ret.push_back(vchPubKey);
+                    return true;
+                }
+            }
+        }
+        return false;
     case TxoutType::NULL_DATA:
     case TxoutType::WITNESS_UNKNOWN:
         return false;
@@ -492,6 +574,12 @@ static CScript PushAll(const std::vector<valtype>& values)
             result << CScript::EncodeOP_N(v[0]);
         } else if (v.size() == 1 && v[0] == 0x81) {
             result << OP_1NEGATE;
+        } else if (v.size() > MAX_SCRIPT_ELEMENT_SIZE) {
+            // Large data exceeds script element size limit
+            // This should not happen with P2WSH as witness data has different limits
+            LogPrintf("ERROR: Attempting to push %d bytes (exceeds MAX_SCRIPT_ELEMENT_SIZE)\n", v.size());
+            // Push empty to make script invalid
+            result << OP_FALSE;
         } else {
             result << v;
         }

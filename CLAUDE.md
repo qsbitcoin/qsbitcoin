@@ -71,15 +71,15 @@ contrib/devtools/clang-format-diff.py
 
 **Signature Schemes** (via liboqs):
 - **ML-DSA-65**: Standard transactions, ~3.3KB signatures (99% of cases)
-- **SLH-DSA-192f**: High-value storage, ~49KB signatures (cold storage)
+- **SLH-DSA-192f**: High-value storage, ~35KB signatures (cold storage)
 - **ECDSA**: Legacy support, 71 bytes (migration period)
 
 **Address Format**:
-- Base58Check encoding with Q prefixes for display
-- Q1xxx: ML-DSA addresses (P2QPKH_ML_DSA)
-- Q2xxx: SLH-DSA addresses (P2QPKH_SLH_DSA)  
-- Q3xxx: Quantum script hash (P2QSH)
-- Prefixes transparently added for display, removed internally
+- Standard bech32 P2WSH encoding for all quantum addresses
+- ML-DSA addresses: bc1q... (mainnet) or bcrt1q... (regtest)
+- SLH-DSA addresses: bc1q... (mainnet) or bcrt1q... (regtest)
+- No special prefixes - quantum addresses look identical to regular P2WSH
+- Large signatures handled transparently in witness data
 
 **Transaction Format**:
 ```cpp
@@ -155,7 +155,7 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 
 1. **Quantum Descriptors**: Full `qpkh()` descriptor implementation in descriptor.cpp
 2. **SPKM Integration**: DescriptorScriptPubKeyMan now supports quantum signing
-3. **Q Prefix Display**: Transparent handling of Q1/Q2/Q3 address prefixes
+3. **P2WSH Implementation**: All quantum addresses use standard bech32 format
 4. **Architecture Transition**: Moved from legacy ScriptPubKeyMan to descriptors
 
 ### Next Critical Steps
@@ -176,4 +176,78 @@ ninja -C build -j$(nproc) && ./build/bin/test_bitcoin -t "*quantum*"
 ./build/bin/test_bitcoin -t quantum_descriptor_wallet_tests  # SPKM integration
 ./build/bin/test_bitcoin -t quantum_wallet_tests         # Wallet functionality
 ./build/bin/test_bitcoin -t quantum_activation_tests     # Soft fork logic
+```
+
+### Manual Testing with bitcoind and bitcoin-cli
+
+When testing with `bitcoind` on regtest network:
+
+1. **Always run bitcoin-cli commands directly** without helper shell scripts
+2. **Delete and recreate wallet files on every test** to ensure clean state
+3. **Example test workflow**:
+
+```bash
+# Start bitcoind in regtest mode
+./build/bin/bitcoind -regtest -daemon
+
+# Create fresh wallet (delete all regtest wallets first)
+./build/bin/bitcoin-cli -regtest unloadwallet "test_wallet" 2>/dev/null
+rm -rf ~/.bitcoin/regtest/wallets/*
+./build/bin/bitcoin-cli -regtest createwallet "test_wallet"
+
+# Generate blocks for testing
+./build/bin/bitcoin-cli -regtest generatetoaddress 101 $(./build/bin/bitcoin-cli -regtest getnewaddress)
+
+# Test quantum functionality
+./build/bin/bitcoin-cli -regtest getnewquantumaddress "ML-DSA-65"
+./build/bin/bitcoin-cli -regtest getnewquantumaddress "SLH-DSA-192f"
+
+# Clean shutdown
+./build/bin/bitcoin-cli -regtest stop
+```
+
+**Important**: Always use fresh wallets for each test session to avoid state contamination from previous tests.
+
+### System Administration and Debugging
+
+When debugging crashes or system-level issues:
+
+1. **Use sudo for privileged operations**:
+```bash
+# Check system logs for crash information
+sudo dmesg | tail -50
+
+# Check for core dumps
+sudo coredumpctl list
+sudo coredumpctl info <pid>
+
+# Monitor system resources
+sudo htop
+
+# Check system journal for bitcoind crashes
+sudo journalctl -u bitcoind -n 100
+sudo journalctl -xe | grep bitcoin
+```
+
+2. **Common permission-required operations**:
+- `dmesg` - Kernel ring buffer (requires sudo)
+- `coredumpctl` - Core dump analysis (requires sudo)
+- System logs in `/var/log/` (may require sudo)
+- Process tracing with `strace` (may require sudo for other users' processes)
+- Network debugging with `tcpdump` (requires sudo)
+
+3. **Debugging bitcoind crashes**:
+```bash
+# Enable core dumps for debugging
+ulimit -c unlimited
+
+# Run bitcoind with gdb
+gdb ./build/bin/bitcoind
+(gdb) run -regtest -debug=all
+
+# Analyze core dump if available
+sudo coredumpctl gdb bitcoind
+
+# Check for assertion failures in debug.log
+grep -i "assertion\|error\|fault" ~/.bitcoin/regtest/debug.log
 ```

@@ -10,6 +10,7 @@
 #include <script/script.h>
 #include <script/solver.h>
 #include <script/descriptor.h>
+#include <script/quantum_witness.h>
 #include <util/bip32.h>
 #include <util/translation.h>
 #include <wallet/receive.h>
@@ -18,12 +19,14 @@
 #include <wallet/walletdb.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/quantum_keystore.h>
+#include <wallet/quantum_wallet_setup.h>
 #include <crypto/quantum_key.h>
 #include <quantum_address.h>
 #include <script/quantum_signature.h>
 #include <common/signmessage.h>
 #include <util/strencodings.h>
 #include <hash.h>
+#include <crypto/sha256.h>
 
 #include <univalue.h>
 
@@ -31,7 +34,6 @@ namespace wallet {
 
 using quantum::CQuantumKey;
 using quantum::CQuantumPubKey;
-using quantum::QuantumAddressType;
 
 RPCHelpMan getnewquantumaddress()
 {
@@ -42,14 +44,14 @@ RPCHelpMan getnewquantumaddress()
         "If 'label' is specified, it is added to the address book so payments received with the address will be associated with 'label'.\n",
         {
             {"label", RPCArg::Type::STR, RPCArg::Default{""}, "The label name for the address to be linked to. It can also be set to the empty string \"\" to represent the default label. The label does not need to exist, it will be created if there is no label by the given name."},
-            {"address_type", RPCArg::Type::STR, RPCArg::Default{"ml-dsa"}, "The quantum signature algorithm to use. Options are \"ml-dsa\" (ML-DSA-65, recommended for most use) and \"slh-dsa\" (SLH-DSA-192f, for high-security applications)."},
+            {"address_type", RPCArg::Type::STR, RPCArg::Optional::NO, "The quantum signature algorithm to use. Must be either \"ml-dsa\" (ML-DSA-65, recommended for most use) or \"slh-dsa\" (SLH-DSA-192f, for high-security applications)."},
         },
         RPCResult{
-            RPCResult::Type::STR, "address", "The new quantum-safe bitcoin address"
+            RPCResult::Type::STR, "address", "The new quantum-safe bitcoin address (bech32 P2WSH format)"
         },
         RPCExamples{
-            HelpExampleCli("getnewquantumaddress", "")
-            + HelpExampleCli("getnewquantumaddress", "\"my_quantum_address\"")
+            HelpExampleCli("getnewquantumaddress", "\"\" \"ml-dsa\"")
+            + HelpExampleCli("getnewquantumaddress", "\"my_quantum_address\" \"ml-dsa\"")
             + HelpExampleCli("getnewquantumaddress", "\"\" \"slh-dsa\"")
             + HelpExampleRpc("getnewquantumaddress", "\"my_quantum_address\", \"ml-dsa\"")
         },
@@ -67,17 +69,15 @@ RPCHelpMan getnewquantumaddress()
             // Parse the label first so we don't generate a key if there's an error
             const std::string label{LabelFromValue(request.params[0])};
 
-            // Parse the quantum algorithm type
-            quantum::SignatureSchemeID scheme_id = quantum::SCHEME_ML_DSA_65;
-            if (!request.params[1].isNull()) {
-                std::string algo = request.params[1].get_str();
-                if (algo == "ml-dsa") {
-                    scheme_id = quantum::SCHEME_ML_DSA_65;
-                } else if (algo == "slh-dsa") {
-                    scheme_id = quantum::SCHEME_SLH_DSA_192F;
-                } else {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Unknown quantum algorithm '%s'. Use 'ml-dsa' or 'slh-dsa'.", algo));
-                }
+            // Parse the quantum algorithm type (required parameter)
+            std::string algo = request.params[1].get_str();
+            quantum::SignatureSchemeID scheme_id;
+            if (algo == "ml-dsa") {
+                scheme_id = quantum::SCHEME_ML_DSA_65;
+            } else if (algo == "slh-dsa") {
+                scheme_id = quantum::SCHEME_SLH_DSA_192F;
+            } else {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Unknown quantum algorithm '%s'. Must be either 'ml-dsa' or 'slh-dsa'.", algo));
             }
 
             // For descriptor wallets, we need to find or create a quantum descriptor
@@ -87,14 +87,16 @@ RPCHelpMan getnewquantumaddress()
             
             // Find a quantum descriptor SPKM that can provide addresses
             DescriptorScriptPubKeyMan* quantum_spkm = nullptr;
+            std::string target_desc_prefix = (scheme_id == quantum::SCHEME_ML_DSA_65) ? "qpkh(quantum:ml-dsa:" : "qpkh(quantum:slh-dsa:";
+            
             for (auto& spkm : pwallet->GetAllScriptPubKeyMans()) {
                 auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
                 if (desc_spkm) {
                     // Check if this is a quantum descriptor
                     std::string desc_str;
                     if (desc_spkm->GetDescriptorString(desc_str, false)) {
-                        if (desc_str.find("qpkh(") != std::string::npos) {
-                            // Found a quantum descriptor
+                        if (desc_str.find(target_desc_prefix) != std::string::npos) {
+                            // Found a quantum descriptor of the right type
                             quantum_spkm = desc_spkm;
                             break;
                         }
@@ -102,8 +104,13 @@ RPCHelpMan getnewquantumaddress()
                 }
             }
             
-            // If no quantum descriptor exists, we need to use the temporary approach
-            // In a complete implementation, we would create a new quantum descriptor here
+            // If no quantum descriptor exists, skip for now (temporarily disabled due to hanging)
+            // TODO: Fix quantum descriptor creation hanging issue
+            if (!quantum_spkm) {
+                // Skip descriptor creation for now
+            }
+            
+            // If we still don't have a quantum descriptor, fall back to temporary approach
             if (!quantum_spkm) {
                 // Fallback to temporary keystore approach for now
                 // Generate new quantum key
@@ -122,6 +129,7 @@ RPCHelpMan getnewquantumaddress()
                 
                 // Add to descriptor SPKM if possible
                 bool added_to_spkm = false;
+                DescriptorScriptPubKeyMan* quantum_spkm_used = nullptr;
                 for (auto& spkm : pwallet->GetAllScriptPubKeyMans()) {
                     auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
                     if (desc_spkm) {
@@ -131,6 +139,7 @@ RPCHelpMan getnewquantumaddress()
                         if (desc_spkm->AddQuantumKey(keyid, std::move(key))) {
                             LogPrintf("Added quantum key to descriptor %s\n", desc_spkm->GetID().ToString());
                             added_to_spkm = true;
+                            quantum_spkm_used = desc_spkm;
                             break;
                         }
                     }
@@ -147,15 +156,62 @@ RPCHelpMan getnewquantumaddress()
                     }
                 }
                 
-                // For quantum addresses, we use the standard P2PKH-like format
-                CTxDestination dest = PKHash(keyid);
+                // For now, we continue with the manual P2WSH approach
+                // TODO: Implement proper descriptor import once wallet descriptor management is ready
+                
+                // Create the witness script
+                CScript witnessScript = quantum::CreateQuantumWitnessScript(pubkey);
+                
+                // Create the P2WSH script for this quantum key
+                CScript scriptPubKey = quantum::CreateQuantumP2WSH(pubkey);
+                
+                // Extract the witness script hash to create a destination
+                std::vector<unsigned char> witnessprogram;
+                int witnessversion;
+                if (!scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) || 
+                    witnessversion != 0 || witnessprogram.size() != 32) {
+                    throw JSONRPCError(RPC_WALLET_ERROR, "Failed to create valid P2WSH script");
+                }
+                
+                CTxDestination dest = WitnessV0ScriptHash(uint256(witnessprogram));
+                
+                // Store the witness script in the global quantum keystore
+                // For P2WSH, the script ID is RIPEMD160 of the witness program (SHA256 of witness script)
+                uint256 witnesshash;
+                CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(witnesshash.begin());
+                CScriptID scriptID{RIPEMD160(witnesshash)};
+                g_quantum_keystore->AddWitnessScript(scriptID, witnessScript);
+                
+                // Also store the P2WSH script itself for IsMine checks
+                CScriptID p2wsh_id(scriptPubKey);
+                g_quantum_keystore->AddWitnessScript(p2wsh_id, scriptPubKey);
+                
+                // Log the descriptor string that would be used
+                std::string key_str;
+                if (key_type == quantum::KeyType::ML_DSA_65) {
+                    key_str = "quantum:ml-dsa:" + HexStr(pubkey.GetKeyData());
+                } else if (key_type == quantum::KeyType::SLH_DSA_192F) {
+                    key_str = "quantum:slh-dsa:" + HexStr(pubkey.GetKeyData());
+                }
+                std::string desc_str = "wsh(qpk(" + key_str + "))";
+                
+                LogPrintf("Added witness script %s for quantum key %s (would use descriptor: %s)\n", 
+                         scriptID.ToString(), keyid.ToString(), desc_str);
+                
+                // If we have a descriptor SPKM, add the script so it's recognized as "mine"
+                if (quantum_spkm_used) {
+                    quantum_spkm_used->AddScriptPubKey(scriptPubKey);
+                    LogPrintf("Added P2WSH script to descriptor SPKM for ownership tracking\n");
+                }
                 
                 // Add to address book
                 pwallet->SetAddressBook(dest, label, AddressPurpose::RECEIVE);
                 
-                // Encode with quantum prefix
-                int quantum_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 1 : 2;
-                std::string address = EncodeQuantumDestination(dest, quantum_type);
+                // Encode as bech32 address (bc1q...)
+                std::string address = EncodeDestination(dest);
+                
+                LogPrintf("Created quantum address %s with witness script size %d bytes\n", 
+                         address, witnessScript.size());
                 
                 return address;
             }
@@ -169,9 +225,8 @@ RPCHelpMan getnewquantumaddress()
             // Add to address book
             pwallet->SetAddressBook(*dest_result, label, AddressPurpose::RECEIVE);
             
-            // Encode with quantum prefix based on the scheme
-            int quantum_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 1 : 2;
-            std::string address = EncodeQuantumDestination(*dest_result, quantum_type);
+            // Encode as standard bech32 address
+            std::string address = EncodeDestination(*dest_result);
             
             return address;
         },
@@ -182,9 +237,10 @@ RPCHelpMan validatequantumaddress()
 {
     return RPCHelpMan{
         "validatequantumaddress",
-        "Validates a quantum-safe Bitcoin address and returns information about it.\n",
+        "DEPRECATED: Quantum addresses now use standard bech32 P2WSH format.\n"
+        "Use validateaddress instead. This RPC is kept for backward compatibility.\n",
         {
-            {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The quantum bitcoin address to validate"},
+            {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The bitcoin address to validate"},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -195,56 +251,45 @@ RPCHelpMan validatequantumaddress()
                 {RPCResult::Type::STR, "type", /*optional=*/true, "The type of address (P2QPKH_ML_DSA, P2QPKH_SLH_DSA, or P2QSH)"},
                 {RPCResult::Type::STR_HEX, "scriptPubKey", /*optional=*/true, "The hex-encoded output script generated by the address"},
                 {RPCResult::Type::BOOL, "isscript", /*optional=*/true, "If the key is a script"},
-                {RPCResult::Type::BOOL, "iswitness", /*optional=*/true, "If the address is a witness address (always false for quantum)"},
+                {RPCResult::Type::BOOL, "iswitness", /*optional=*/true, "If the address is a witness address"},
+                {RPCResult::Type::NUM, "witness_version", /*optional=*/true, "The witness version (0 for P2WSH)"},
+                {RPCResult::Type::STR_HEX, "witness_program", /*optional=*/true, "The witness program"},
                 {RPCResult::Type::BOOL, "isquantum", /*optional=*/true, "If the address is a quantum address"},
+                {RPCResult::Type::STR, "note", /*optional=*/true, "Additional information about the address"},
             }
         },
         RPCExamples{
-            HelpExampleCli("validatequantumaddress", "\"Q1abcd...\"")
-            + HelpExampleRpc("validatequantumaddress", "\"Q1abcd...\"")
+            HelpExampleCli("validatequantumaddress", "\"bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3\"")
+            + HelpExampleRpc("validatequantumaddress", "\"bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3\"")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
             UniValue ret(UniValue::VOBJ);
             
-            std::string error_msg;
             std::string addr_str = request.params[0].get_str();
-            CTxDestination dest = DecodeQuantumDestination(addr_str, error_msg);
+            CTxDestination dest = DecodeDestination(addr_str);
             bool isValid = IsValidDestination(dest);
             
             ret.pushKV("isvalid", isValid);
             
             if (isValid) {
-                // Re-encode with quantum prefix if it was a quantum address
-                if (IsQuantumAddress(addr_str)) {
-                    int quantum_type = GetQuantumAddressType(addr_str);
-                    ret.pushKV("address", EncodeQuantumDestination(dest, quantum_type));
-                } else {
-                    ret.pushKV("address", EncodeDestination(dest));
-                }
+                ret.pushKV("address", EncodeDestination(dest));
                 
-                // Check if it's a quantum address by looking at the prefix
-                if (IsQuantumAddress(addr_str)) {
-                    // Quantum address
-                    if (addr_str.substr(0, 2) == "Q1") {
-                        ret.pushKV("algorithm", "ml-dsa");
-                        ret.pushKV("type", "P2QPKH_ML_DSA");
-                    } else if (addr_str.substr(0, 2) == "Q2") {
-                        ret.pushKV("algorithm", "slh-dsa");
-                        ret.pushKV("type", "P2QPKH_SLH_DSA");
-                    } else if (addr_str.substr(0, 2) == "Q3") {
-                        ret.pushKV("type", "P2QSH");
-                    }
+                // Check if it's a P2WSH address
+                if (auto witness_script_hash = std::get_if<WitnessV0ScriptHash>(&dest)) {
+                    ret.pushKV("iswitness", true);
+                    ret.pushKV("witness_version", 0);
+                    ret.pushKV("witness_program", HexStr(*witness_script_hash));
                     
                     // Generate scriptPubKey
                     CScript scriptPubKey = GetScriptForDestination(dest);
                     ret.pushKV("scriptPubKey", HexStr(scriptPubKey));
-                    ret.pushKV("isscript", addr_str.substr(0, 2) == "Q3");
-                    ret.pushKV("iswitness", false);
-                    ret.pushKV("isquantum", true);
+                    
+                    // Note: We can't determine if this is a quantum address just from the P2WSH
+                    // since it looks like any other P2WSH address
+                    ret.pushKV("note", "Quantum addresses use P2WSH format. Cannot determine if quantum without witness script.");
                 } else {
-                    // Not a quantum address
-                    ret.pushKV("isquantum", false);
+                    ret.pushKV("iswitness", false);
                 }
             }
             
@@ -363,9 +408,9 @@ RPCHelpMan signmessagewithscheme()
             "\nUnlock the wallet for 30 seconds\n"
             + HelpExampleCli("walletpassphrase", "\"mypassphrase\" 30") +
             "\nCreate the signature\n"
-            + HelpExampleCli("signmessagewithscheme", "\"Q1VaN9zXfBk...\" \"my message\" \"ml-dsa\"") +
+            + HelpExampleCli("signmessagewithscheme", "\"bcrt1q...\" \"my message\" \"ml-dsa\"") +
             "\nAs a JSON-RPC call\n"
-            + HelpExampleRpc("signmessagewithscheme", "\"Q1VaN9zXfBk...\", \"my message\", \"ml-dsa\"")
+            + HelpExampleRpc("signmessagewithscheme", "\"bcrt1q...\", \"my message\", \"ml-dsa\"")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
@@ -379,14 +424,8 @@ RPCHelpMan signmessagewithscheme()
             std::string strAddress = request.params[0].get_str();
             std::string strMessage = request.params[1].get_str();
             
-            // Handle quantum addresses (Q prefix)
-            CTxDestination dest;
-            if (IsQuantumAddress(strAddress)) {
-                std::string error_msg;
-                dest = DecodeQuantumDestination(strAddress, error_msg, nullptr);
-            } else {
-                dest = DecodeDestination(strAddress);
-            }
+            // Decode address (quantum addresses now use standard bech32 format)
+            CTxDestination dest = DecodeDestination(strAddress);
             
             if (!IsValidDestination(dest)) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address");
@@ -398,26 +437,20 @@ RPCHelpMan signmessagewithscheme()
                 scheme_str = request.params[2].get_str();
             }
 
-            // Get the private key for this address
+            // For P2WSH addresses, we need to get the witness script hash
+            const WitnessV0ScriptHash* witness_script_hash = std::get_if<WitnessV0ScriptHash>(&dest);
             const PKHash* pkhash = std::get_if<PKHash>(&dest);
-            if (!pkhash) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address does not refer to a key");
+            
+            if (!witness_script_hash && !pkhash) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address type not supported for message signing");
             }
 
             // Determine which scheme to use
             ::quantum::SignatureSchemeID scheme_id = ::quantum::SCHEME_ECDSA;
             std::string actual_algo = "ecdsa";
             
-            // Check if it's a quantum address
-            if (strAddress.length() > 2 && strAddress[0] == 'Q') {
-                if (strAddress.substr(0, 2) == "Q1") {
-                    scheme_id = ::quantum::SCHEME_ML_DSA_65;
-                    actual_algo = "ml-dsa";
-                } else if (strAddress.substr(0, 2) == "Q2") {
-                    scheme_id = ::quantum::SCHEME_SLH_DSA_192F;
-                    actual_algo = "slh-dsa";
-                }
-            }
+            // For P2WSH addresses, we can't auto-detect the scheme without the witness script
+            // User must specify the scheme explicitly or we'll try to find a matching key
             
             // Override with explicit scheme if provided
             if (scheme_str != "auto") {
@@ -439,36 +472,94 @@ RPCHelpMan signmessagewithscheme()
             std::string signature;
             if (scheme_id == ::quantum::SCHEME_ECDSA) {
                 // Use standard ECDSA signing
+                if (!pkhash) {
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "ECDSA signing requires P2PKH address");
+                }
                 SigningResult res = pwallet->SignMessage(strMessage, *pkhash, signature);
                 if (res != SigningResult::OK) {
                     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, SigningResultString(res));
                 }
             } else {
                 // Use quantum signing
-                CKeyID keyid(static_cast<uint160>(*pkhash));
-                
-                // Get quantum key from descriptor SPKMs first, then fall back to global keystore
+                // For P2WSH addresses, we need to find a quantum key that matches the witness script hash
                 const CQuantumKey* qkey = nullptr;
                 bool found = false;
                 
-                // Check descriptor SPKMs first
-                if (pwallet->IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
-                    for (auto& spkm : pwallet->GetAllScriptPubKeyMans()) {
-                        auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
-                        if (desc_spkm && desc_spkm->GetQuantumKey(keyid, &qkey)) {
-                            found = true;
-                            break;
+                if (witness_script_hash) {
+                    // For P2WSH, we need to search for a key that would produce this script hash
+                    // This requires checking all quantum keys in the wallet
+                    if (pwallet->IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
+                        for (auto& spkm : pwallet->GetAllScriptPubKeyMans()) {
+                            auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
+                            if (desc_spkm) {
+                                // Get all quantum keys and check if any match
+                                std::vector<CKeyID> keyids;
+                                desc_spkm->GetQuantumKeyIDs(keyids);
+                                
+                                for (const auto& keyid : keyids) {
+                                    const CQuantumKey* candidate_key = nullptr;
+                                    if (desc_spkm->GetQuantumKey(keyid, &candidate_key) && candidate_key) {
+                                        // Check if this key's P2WSH matches our address
+                                        CQuantumPubKey pubkey = candidate_key->GetPubKey();
+                                        CScript witness_script = quantum::CreateQuantumWitnessScript(pubkey);
+                                        uint256 hash;
+                                        CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(hash.begin());
+                                        
+                                        if (hash == uint256(*witness_script_hash)) {
+                                            qkey = candidate_key;
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (found) break;
+                            }
                         }
+                    }
+                    
+                    // Also check global keystore
+                    if (!found && g_quantum_keystore) {
+                        std::vector<CKeyID> keyids = g_quantum_keystore->GetAllKeyIDs();
+                        for (const auto& keyid : keyids) {
+                            const CQuantumKey* candidate_key = nullptr;
+                            if (g_quantum_keystore->GetQuantumKey(keyid, &candidate_key) && candidate_key) {
+                                // Check if this key's P2WSH matches our address
+                                CQuantumPubKey pubkey = candidate_key->GetPubKey();
+                                CScript witness_script = quantum::CreateQuantumWitnessScript(pubkey);
+                                uint256 hash;
+                                CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(hash.begin());
+                                
+                                if (hash == uint256(*witness_script_hash)) {
+                                    qkey = candidate_key;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if (pkhash) {
+                    // Legacy P2PKH quantum address support (deprecated)
+                    CKeyID keyid(static_cast<uint160>(*pkhash));
+                    
+                    // Check descriptor SPKMs first
+                    if (pwallet->IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
+                        for (auto& spkm : pwallet->GetAllScriptPubKeyMans()) {
+                            auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
+                            if (desc_spkm && desc_spkm->GetQuantumKey(keyid, &qkey)) {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Fall back to global keystore
+                    if (!found && g_quantum_keystore) {
+                        found = g_quantum_keystore->GetQuantumKey(keyid, &qkey);
                     }
                 }
                 
-                // Fall back to global keystore
-                if (!found && g_quantum_keystore) {
-                    found = g_quantum_keystore->GetQuantumKey(keyid, &qkey);
-                }
-                
                 if (!found || !qkey) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Quantum key not found");
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Quantum key not found for this address");
                 }
                 
                 // Create the message hash using the standard function

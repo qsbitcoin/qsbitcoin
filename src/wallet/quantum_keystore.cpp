@@ -56,36 +56,43 @@ bool QuantumKeyStore::HaveQuantumKey(const CKeyID& keyid) const
     return m_quantum_keys.count(keyid) > 0;
 }
 
-int QuantumKeyStore::GetQuantumTypeForAddress(const CTxDestination& dest) const
-{
-    LOCK(cs_quantum_keys);
-    
-    // Check if it's a PKHash address
-    const PKHash* pkhash = std::get_if<PKHash>(&dest);
-    if (pkhash) {
-        CKeyID keyid(static_cast<uint160>(*pkhash));
-        
-        // Check if we have this quantum key
-        if (HaveQuantumKey(keyid)) {
-            // Check the public key to determine the type
-            CQuantumPubKey pubkey;
-            if (GetQuantumPubKey(keyid, pubkey)) {
-                if (pubkey.GetType() == ::quantum::KeyType::ML_DSA_65) {
-                    return 1; // Q1 prefix
-                } else if (pubkey.GetType() == ::quantum::KeyType::SLH_DSA_192F) {
-                    return 2; // Q2 prefix
-                }
-            }
-        }
-    }
-    
-    return 0; // Not a quantum address
-}
 
 size_t QuantumKeyStore::GetKeyCount() const
 {
     LOCK(cs_quantum_keys);
     return m_quantum_keys.size();
+}
+
+std::vector<CKeyID> QuantumKeyStore::GetAllKeyIDs() const
+{
+    LOCK(cs_quantum_keys);
+    std::vector<CKeyID> keyids;
+    keyids.reserve(m_quantum_keys.size());
+    
+    for (const auto& [keyid, key] : m_quantum_keys) {
+        keyids.push_back(keyid);
+    }
+    
+    return keyids;
+}
+
+bool QuantumKeyStore::AddWitnessScript(const CScriptID& scriptID, const CScript& witnessScript)
+{
+    LOCK(cs_quantum_keys);
+    m_witness_scripts[scriptID] = witnessScript;
+    return true;
+}
+
+bool QuantumKeyStore::GetWitnessScript(const CScriptID& scriptID, CScript& witnessScript) const
+{
+    LOCK(cs_quantum_keys);
+    
+    auto it = m_witness_scripts.find(scriptID);
+    if (it != m_witness_scripts.end()) {
+        witnessScript = it->second;
+        return true;
+    }
+    return false;
 }
 
 } // namespace wallet

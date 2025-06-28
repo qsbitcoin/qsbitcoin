@@ -5,6 +5,7 @@
 #include <core_io.h>
 #include <hash.h>
 #include <key_io.h>
+#include <quantum_address.h>
 #include <rpc/util.h>
 #include <script/script.h>
 #include <util/moneystr.h>
@@ -544,7 +545,8 @@ RPCHelpMan listunspent()
         UniValue inputs = request.params[2].get_array();
         for (unsigned int idx = 0; idx < inputs.size(); idx++) {
             const UniValue& input = inputs[idx];
-            CTxDestination dest = DecodeDestination(input.get_str());
+            std::string addr_str = input.get_str();
+            CTxDestination dest = DecodeDestination(addr_str);
             if (!IsValidDestination(dest)) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string("Invalid Bitcoin address: ") + input.get_str());
             }
@@ -626,7 +628,13 @@ RPCHelpMan listunspent()
         entry.pushKV("vout", (int)out.outpoint.n);
 
         if (fValidAddress) {
-            entry.pushKV("address", EncodeDestination(address));
+            // Check if this is a quantum address and encode accordingly
+            std::string encoded_addr;
+            
+            // Check if script contains quantum opcodes
+            // All addresses now use standard encoding (quantum addresses are bech32 P2WSH)
+            encoded_addr = EncodeDestination(address);
+            entry.pushKV("address", encoded_addr);
 
             const auto* address_book_entry = pwallet->FindAddressBookEntry(address);
             if (address_book_entry) {

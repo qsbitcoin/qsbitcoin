@@ -19,6 +19,9 @@
 #include <util/translation.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/quantum_descriptor_util.h>
+#include <wallet/quantum_keystore.h>
+#include <script/quantum_witness.h>
+#include <crypto/sha256.h>
 
 #include <optional>
 
@@ -866,6 +869,35 @@ isminetype DescriptorScriptPubKeyMan::IsMine(const CScript& script) const
     if (m_map_script_pub_keys.count(script) > 0) {
         return ISMINE_SPENDABLE;
     }
+    
+    // Check if this is a quantum P2WSH address
+    if (script.size() == 34 && script[0] == OP_0 && script[1] == 32) {
+        // Extract witness program
+        std::vector<unsigned char> witnessprogram(script.begin() + 2, script.begin() + 34);
+        uint256 scripthash(witnessprogram);
+        
+        // First check if we have any quantum keys in THIS descriptor
+        if (!m_map_quantum_pubkeys.empty()) {
+            LogPrintf("Checking %zu quantum keys in descriptor %s for P2WSH %s\n", 
+                     m_map_quantum_pubkeys.size(), GetID().ToString(), HexStr(script));
+            
+            for (const auto& [keyid, pubkey] : m_map_quantum_pubkeys) {
+                // Create the witness script for this quantum key
+                CScript witnessScript = quantum::CreateQuantumWitnessScript(pubkey);
+                
+                // Calculate SHA256 of witness script
+                uint256 calculated_hash;
+                CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(calculated_hash.begin());
+                
+                if (calculated_hash == scripthash) {
+                    LogPrintf("Found quantum P2WSH address as mine in descriptor %s: %s\n", 
+                             GetID().ToString(), HexStr(script));
+                    return ISMINE_SPENDABLE;
+                }
+            }
+        }
+    }
+    
     return ISMINE_NO;
 }
 
@@ -1157,6 +1189,33 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(WalletBatch& batch, co
 
     // TopUp
     TopUpWithDB(batch);
+
+    m_storage.UnsetBlankWalletFlag(batch);
+    return true;
+}
+
+bool DescriptorScriptPubKeyMan::SetupQuantumDescriptor(WalletBatch& batch, const WalletDescriptor& desc)
+{
+    LOCK(cs_desc_man);
+    assert(m_storage.IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS));
+
+    // Ignore when there is already a descriptor
+    if (m_wallet_descriptor.descriptor) {
+        return false;
+    }
+
+    m_wallet_descriptor = desc;
+
+    // Write descriptor to database
+    if (!batch.WriteDescriptor(GetID(), m_wallet_descriptor)) {
+        throw std::runtime_error(std::string(__func__) + ": writing quantum descriptor failed");
+    }
+
+    // For quantum descriptors, we don't do HD key generation (TopUp)
+    // The quantum keys are added separately via AddQuantumKey
+    
+    // Wait to expand the descriptor until after quantum keys are added
+    // Just mark that we have a descriptor for now
 
     m_storage.UnsetBlankWalletFlag(batch);
     return true;
@@ -1507,6 +1566,21 @@ bool DescriptorScriptPubKeyMan::AddQuantumKey(const CKeyID& key_id, std::unique_
     return result;
 }
 
+void DescriptorScriptPubKeyMan::AddScriptPubKey(const CScript& script)
+{
+    LOCK(cs_desc_man);
+    // Add script to tracking with a special index for quantum addresses
+    // Use negative indices for quantum addresses to avoid conflicts
+    static int32_t quantum_index = -1;
+    m_map_script_pub_keys[script] = quantum_index--;
+    LogPrintf("Added quantum script to tracking: %s with index %d\n", HexStr(script), quantum_index + 1);
+    
+    // Notify the wallet to update its cache
+    std::set<CScript> new_spks;
+    new_spks.insert(script);
+    m_storage.TopUpCallback(new_spks, this);
+}
+
 bool DescriptorScriptPubKeyMan::AddCryptedQuantumKey(const CKeyID& key_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& crypted_key)
 {
     LOCK(cs_desc_man);
@@ -1562,6 +1636,17 @@ size_t DescriptorScriptPubKeyMan::GetQuantumKeyCount() const
     }
     
     return count;
+}
+
+void DescriptorScriptPubKeyMan::GetQuantumKeyIDs(std::vector<CKeyID>& keyids) const
+{
+    LOCK(cs_desc_man);
+    keyids.clear();
+    keyids.reserve(m_map_quantum_pubkeys.size());
+    
+    for (const auto& [keyid, pubkey] : m_map_quantum_pubkeys) {
+        keyids.push_back(keyid);
+    }
 }
 
 bool DescriptorScriptPubKeyMan::HasWalletDescriptor(const WalletDescriptor& desc) const

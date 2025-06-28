@@ -16,6 +16,7 @@
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
+#include <script/quantum_signature.h>
 #include <script/script.h>
 #include <support/allocators/secure.h>
 #include <sync.h>
@@ -1061,6 +1062,9 @@ public:
     //! Find the private key for the given key id from the wallet's descriptors, if available
     //! Returns nullopt when no descriptor has the key or if the wallet is locked.
     std::optional<CKey> GetKey(const CKeyID& keyid) const;
+    
+    friend bool SetupQuantumDescriptor(CWallet& wallet, WalletBatch& batch, quantum::SignatureSchemeID scheme_id, bool internal);
+    friend void SetupQuantumDescriptors(CWallet& wallet, WalletBatch& batch);
 };
 
 /**

@@ -30,6 +30,9 @@ private:
     
     //! Map from CKeyID to quantum public keys  
     std::map<CKeyID, CQuantumPubKey> m_quantum_pubkeys GUARDED_BY(cs_quantum_keys);
+    
+    //! Map from CScriptID to witness scripts for quantum P2WSH addresses
+    std::map<CScriptID, CScript> m_witness_scripts GUARDED_BY(cs_quantum_keys);
 
 public:
     //! Add a quantum key to the store
@@ -44,11 +47,17 @@ public:
     //! Check if we have a quantum key
     bool HaveQuantumKey(const CKeyID& keyid) const;
     
-    //! Get the quantum type for an address (1 for ML-DSA, 2 for SLH-DSA, 0 for non-quantum)
-    int GetQuantumTypeForAddress(const CTxDestination& dest) const;
-    
     //! Get the number of quantum keys in the store
     size_t GetKeyCount() const;
+    
+    //! Get all key IDs in the store
+    std::vector<CKeyID> GetAllKeyIDs() const;
+    
+    //! Add a witness script for a quantum P2WSH address
+    bool AddWitnessScript(const CScriptID& scriptID, const CScript& witnessScript);
+    
+    //! Get a witness script by its ID
+    bool GetWitnessScript(const CScriptID& scriptID, CScript& witnessScript) const;
 };
 
 //! Global quantum key store (temporary solution)

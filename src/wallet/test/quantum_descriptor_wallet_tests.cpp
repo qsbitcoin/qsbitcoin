@@ -63,19 +63,19 @@ BOOST_AUTO_TEST_CASE(quantum_descriptor_signing_provider)
     }
     
     // Test PopulateQuantumSigningProvider
-    FlatSigningProvider signing_provider;
-    PopulateQuantumSigningProvider(script, signing_provider, true);
+    // Pass keys_out which contains the witness scripts from descriptor expansion
+    PopulateQuantumSigningProvider(script, keys_out, true);
     
     // Check that the quantum key was added
-    BOOST_CHECK(signing_provider.HaveQuantumKey(keyid));
+    BOOST_CHECK(keys_out.HaveQuantumKey(keyid));
     
     quantum::CQuantumPubKey retrieved_pubkey;
-    BOOST_CHECK(signing_provider.GetQuantumPubKey(keyid, retrieved_pubkey));
+    BOOST_CHECK(keys_out.GetQuantumPubKey(keyid, retrieved_pubkey));
     BOOST_CHECK(retrieved_pubkey == quantum_pubkey);
     
     // Check private key access
     quantum::CQuantumKey* retrieved_key = nullptr;
-    BOOST_CHECK(signing_provider.GetQuantumKey(keyid, &retrieved_key));
+    BOOST_CHECK(keys_out.GetQuantumKey(keyid, &retrieved_key));
     BOOST_CHECK(retrieved_key != nullptr);
 }
 
@@ -111,19 +111,19 @@ BOOST_AUTO_TEST_CASE(quantum_descriptor_with_signing_provider)
     BOOST_CHECK_EQUAL(scripts.size(), 1);
     
     // Test PopulateQuantumSigningProvider with the script
-    FlatSigningProvider signing_provider;
-    PopulateQuantumSigningProvider(scripts[0], signing_provider, true);
+    // Use out_keys which contains the witness scripts
+    PopulateQuantumSigningProvider(scripts[0], out_keys, true);
     
     // Check that the quantum key was added
-    BOOST_CHECK(signing_provider.HaveQuantumKey(keyid));
+    BOOST_CHECK(out_keys.HaveQuantumKey(keyid));
     
     quantum::CQuantumPubKey retrieved_pubkey;
-    BOOST_CHECK(signing_provider.GetQuantumPubKey(keyid, retrieved_pubkey));
+    BOOST_CHECK(out_keys.GetQuantumPubKey(keyid, retrieved_pubkey));
     BOOST_CHECK(retrieved_pubkey == quantum_pubkey);
     
     // Check private key access
     quantum::CQuantumKey* retrieved_key = nullptr;
-    BOOST_CHECK(signing_provider.GetQuantumKey(keyid, &retrieved_key));
+    BOOST_CHECK(out_keys.GetQuantumKey(keyid, &retrieved_key));
     BOOST_CHECK(retrieved_key != nullptr);
 }
 

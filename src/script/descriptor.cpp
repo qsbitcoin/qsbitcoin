@@ -960,6 +960,69 @@ public:
     }
 };
 
+/** A parsed qpk(P) descriptor for quantum public keys. */
+class QPKDescriptor final : public DescriptorImpl
+{
+protected:
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>& keys, std::span<const CScript>, FlatSigningProvider& provider) const override
+    {
+        // This is called for wsh(qpk(KEY)) - we need to generate the witness script
+        // The pubkey provider should have given us a quantum pubkey
+        
+        // Get the quantum pubkey from the provider
+        CKeyID keyid = keys[0].GetID();
+        quantum::CQuantumPubKey qpubkey;
+        if (!provider.GetQuantumPubKey(keyid, qpubkey)) {
+            return {}; // Failed to get quantum pubkey
+        }
+        
+        // Create witness script: <quantum_pubkey> OP_CHECKSIG_ML_DSA/SLH_DSA
+        CScript witnessScript;
+        witnessScript << qpubkey.GetKeyData();
+        
+        switch (qpubkey.GetType()) {
+            case quantum::KeyType::ML_DSA_65:
+                witnessScript << OP_CHECKSIG_ML_DSA;
+                break;
+            case quantum::KeyType::SLH_DSA_192F:
+                witnessScript << OP_CHECKSIG_SLH_DSA;
+                break;
+            default:
+                return {}; // Invalid quantum key type
+        }
+        
+        return Vector(std::move(witnessScript));
+    }
+public:
+    QPKDescriptor(std::unique_ptr<PubkeyProvider> prov) : DescriptorImpl(Vector(std::move(prov)), "qpk") {}
+    bool IsSingleType() const final { return true; }
+    
+    std::optional<int64_t> ScriptSize() const override {
+        // Quantum witness scripts are much larger
+        // ML-DSA: ~1956 bytes, SLH-DSA: ~32KB
+        // Return maximum for conservative estimates
+        return 32768; // 32KB max
+    }
+    
+    std::optional<int64_t> MaxSatSize(bool use_max_sig) const override {
+        // ML-DSA signature: ~3.3KB, SLH-DSA signature: ~35KB
+        // Return maximum for conservative estimates
+        return 1 + 35664 + 1952; // sig + pubkey
+    }
+    
+    std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override {
+        // In witness, weight = size (no 4x factor)
+        return *MaxSatSize(use_max_sig);
+    }
+    
+    std::optional<int64_t> MaxSatisfactionElems() const override { return 2; } // sig + pubkey
+    
+    std::unique_ptr<DescriptorImpl> Clone() const override
+    {
+        return std::make_unique<QPKDescriptor>(m_pubkey_args.at(0)->Clone());
+    }
+};
+
 /** A parsed pkh(P) descriptor. */
 class PKHDescriptor final : public DescriptorImpl
 {
@@ -1041,57 +1104,71 @@ protected:
         
         // Get the quantum public key
         quantum::CQuantumPubKey qpubkey = quantum_provider->GetQuantumPubKey();
-        CKeyID id = qpubkey.GetID();
         
-        // Create quantum script based on scheme type
-        CScript script;
+        // Create witness script for quantum key: <pubkey> OP_CHECKSIG_[ML_DSA/SLH_DSA]
+        CScript witnessScript;
+        witnessScript << qpubkey.GetKeyData();
+        
         if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
-            // Create ML-DSA P2QPKH script: OP_CHECKSIG_ML_DSA <hash160>
-            script << OP_CHECKSIG_ML_DSA << ToByteVector(id);
+            witnessScript << OP_CHECKSIG_ML_DSA;
         } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
-            // Create SLH-DSA P2QPKH script: OP_CHECKSIG_SLH_DSA <hash160>
-            script << OP_CHECKSIG_SLH_DSA << ToByteVector(id);
+            witnessScript << OP_CHECKSIG_SLH_DSA;
         } else {
             return {}; // Unknown scheme
         }
         
-        // Store quantum pubkey info in FlatSigningProvider
-        // We need to store the quantum pubkey for signing later
-        // This is a simplified approach - in production, we'd extend FlatSigningProvider
+        // Create P2WSH script: OP_0 <32-byte-hash>
+        uint256 hash;
+        CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(hash.begin());
+        
+        CScript script;
+        script << OP_0 << std::vector<unsigned char>(hash.begin(), hash.end());
+        
+        // Store the witness script in the provider for signing
+        out.scripts.emplace(CScriptID(witnessScript), witnessScript);
         
         return Vector(script);
     }
     
 public:
     QPKHDescriptor(std::unique_ptr<PubkeyProvider> prov) : DescriptorImpl(Vector(std::move(prov)), "qpkh") {}
-    std::optional<OutputType> GetOutputType() const override { return OutputType::LEGACY; }
+    std::optional<OutputType> GetOutputType() const override { return OutputType::BECH32; }
     bool IsSingleType() const final { return true; }
     
     std::optional<int64_t> ScriptSize() const override { 
-        // Quantum scripts are larger: OP_CHECKSIG_ML_DSA/SLH_DSA <hash160>
-        return 1 + 1 + 20; // opcode + push + hash160
+        // P2WSH script: OP_0 <32-byte-hash>
+        return 1 + 1 + 32; // OP_0 + push + hash256
     }
     
     std::optional<int64_t> MaxSatSize(bool use_max_sig) const override {
+        // For P2WSH, this is the size of the witness stack items
         auto* quantum_provider = dynamic_cast<const QuantumPubkeyProvider*>(m_pubkey_args[0].get());
         if (!quantum_provider) return std::nullopt;
         
-        // Quantum signatures are much larger
+        // Witness stack contains: signature, pubkey, witness script
         size_t sig_size = 0;
         if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
-            sig_size = 3309; // ML-DSA-65 signature size
+            sig_size = 3309 + 1; // ML-DSA-65 signature + sighash byte
         } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
-            sig_size = 35664; // SLH-DSA-192f signature size
+            sig_size = 35664 + 1; // SLH-DSA-192f signature + sighash byte
         }
         
-        return 1 + sig_size + 1 + quantum_provider->GetSize();
+        size_t pubkey_size = quantum_provider->GetSize();
+        size_t witness_script_size = 1 + pubkey_size + 1; // push + pubkey + opcode
+        
+        // Total witness size
+        return sig_size + pubkey_size + witness_script_size;
     }
     
     std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override {
-        return *MaxSatSize(use_max_sig) * WITNESS_SCALE_FACTOR;
+        // For witness data, weight = size (no 4x multiplier)
+        return *MaxSatSize(use_max_sig);
     }
     
-    std::optional<int64_t> MaxSatisfactionElems() const override { return 2; }
+    std::optional<int64_t> MaxSatisfactionElems() const override { 
+        // Witness stack has 3 elements: signature, pubkey, witness script
+        return 3; 
+    }
     
     std::unique_ptr<DescriptorImpl> Clone() const override
     {
@@ -2026,6 +2103,22 @@ std::vector<std::unique_ptr<DescriptorImpl>> ParseScript(uint32_t& key_exp_index
             ret.emplace_back(std::make_unique<PKDescriptor>(std::move(pubkey), ctx == ParseScriptContext::P2TR));
         }
         return ret;
+    }
+    if ((ctx == ParseScriptContext::P2WSH) && Func("qpk", expr)) {
+        // qpk() is only valid inside wsh() for quantum witness scripts
+        auto pubkeys = ParseQuantumPubkey(key_exp_index, expr, ctx, out, error);
+        if (pubkeys.empty()) {
+            error = strprintf("qpk(): %s", error);
+            return {};
+        }
+        ++key_exp_index;
+        for (auto& pubkey : pubkeys) {
+            ret.emplace_back(std::make_unique<QPKDescriptor>(std::move(pubkey)));
+        }
+        return ret;
+    } else if (Func("qpk", expr)) {
+        error = "Can only have qpk() inside wsh()";
+        return {};
     }
     if ((ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH || ctx == ParseScriptContext::P2WSH) && Func("pkh", expr)) {
         auto pubkeys = ParsePubkey(key_exp_index, expr, ctx, out, error);

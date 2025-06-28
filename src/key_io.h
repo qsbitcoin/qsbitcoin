@@ -27,12 +27,5 @@ CTxDestination DecodeDestination(const std::string& str, std::string& error_msg,
 bool IsValidDestinationString(const std::string& str);
 bool IsValidDestinationString(const std::string& str, const CChainParams& params);
 
-// Quantum address support
-std::string EncodeQuantumDestination(const CTxDestination& dest, int quantum_type = 0);
-CTxDestination DecodeQuantumDestination(const std::string& str);
-CTxDestination DecodeQuantumDestination(const std::string& str, std::string& error_msg, std::vector<int>* error_locations = nullptr);
-bool IsValidQuantumDestinationString(const std::string& str);
-bool IsQuantumAddress(const std::string& str);
-int GetQuantumAddressType(const std::string& str);
 
 #endif // BITCOIN_KEY_IO_H

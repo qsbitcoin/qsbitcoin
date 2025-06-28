@@ -13,6 +13,7 @@
 #include <script/script.h>
 #include <script/quantum_signature.h>
 #include <uint256.h>
+#include <logging.h>
 
 typedef std::vector<unsigned char> valtype;
 
@@ -320,120 +321,46 @@ public:
 
 static bool EvalChecksigQuantum(const valtype& vchSig, const valtype& vchPubKey, opcodetype opcode, CScript::const_iterator pbegincodehash, CScript::const_iterator pend, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
-    // For dynamic signature format, parse the full signature data
-    quantum::QuantumSignature qsig;
-    
-    // Check if this is a dynamic format signature (has scheme_id prefix)
-    if (!vchSig.empty()) {
-        // Try to parse as dynamic quantum signature
-        if (!quantum::ParseQuantumSignature(vchSig, qsig)) {
-            if (serror) *serror = SCRIPT_ERR_SIG_DER;
-            return false;
-        }
-        
-        // Verify the scheme matches the opcode
-        quantum::KeyType expectedKeyType;
-        if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIGVERIFY_ML_DSA) {
-            expectedKeyType = quantum::KeyType::ML_DSA_65;
-            if (qsig.scheme_id != quantum::SCHEME_ML_DSA_65) {
-                if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
-                return false;
-            }
-        } else if (opcode == OP_CHECKSIG_SLH_DSA || opcode == OP_CHECKSIGVERIFY_SLH_DSA) {
-            expectedKeyType = quantum::KeyType::SLH_DSA_192F;
-            if (qsig.scheme_id != quantum::SCHEME_SLH_DSA_192F) {
-                if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
-                return false;
-            }
-        } else {
-            if (serror) *serror = SCRIPT_ERR_UNKNOWN_ERROR;
-            return false;
-        }
-        
-        // Create quantum public key from parsed data
-        quantum::CQuantumPubKey qPubKey(expectedKeyType, qsig.pubkey);
-        if (!qPubKey.IsValid()) {
-            if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
-            return false;
-        }
-        
-        // Extract hash type from signature
-        std::vector<unsigned char> vchSigNoHashType;
-        if (qsig.signature.size() > 0) {
-            // For now, just use the signature as-is
-            // TODO: Properly compute signature hash using nHashType
-            vchSigNoHashType = qsig.signature;
-        } else {
-            if (serror) *serror = SCRIPT_ERR_SIG_DER;
-            return false;
-        }
-        
-        // Create a script from the parsed signature for verification
-        CScript scriptCode(pbegincodehash, pend);
-        
-        // Use the signature checker to verify
-        bool fSuccess = checker.CheckQuantumSignature(qsig.signature, qsig.pubkey, 
-                                                     scriptCode, sigversion, qsig.scheme_id);
-        
-        if (!fSuccess && serror) {
-            *serror = SCRIPT_ERR_SIG_NULLFAIL;
-        }
-        
-        return fSuccess;
+    // Determine expected key type from opcode
+    quantum::KeyType expectedKeyType;
+    if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIGVERIFY_ML_DSA) {
+        expectedKeyType = quantum::KeyType::ML_DSA_65;
+    } else if (opcode == OP_CHECKSIG_SLH_DSA || opcode == OP_CHECKSIGVERIFY_SLH_DSA) {
+        expectedKeyType = quantum::KeyType::SLH_DSA_192F;
     } else {
-        // Legacy format - signature and pubkey passed separately
-        // Determine the key type based on the opcode
-        quantum::KeyType keyType;
-        if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIGVERIFY_ML_DSA) {
-            keyType = quantum::KeyType::ML_DSA_65;
-        } else if (opcode == OP_CHECKSIG_SLH_DSA || opcode == OP_CHECKSIGVERIFY_SLH_DSA) {
-            keyType = quantum::KeyType::SLH_DSA_192F;
-        } else {
-            if (serror) *serror = SCRIPT_ERR_UNKNOWN_ERROR;
-            return false;
-        }
-
-        // Check signature format
-        if (vchSig.empty()) {
-            if (serror) *serror = SCRIPT_ERR_SIG_DER;
-            return false;
-        }
-
-        // Create quantum public key
-        quantum::CQuantumPubKey qPubKey(keyType, vchPubKey);
-        if (!qPubKey.IsValid()) {
-            if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
-            return false;
-        }
-
-        // Extract hash type from signature
-        std::vector<unsigned char> vchSigNoHashType;
-        if (vchSig.size() > 0) {
-            // For now, just use the signature as-is
-            // TODO: Properly compute signature hash using nHashType
-            vchSigNoHashType = vchSig;
-        } else {
-            if (serror) *serror = SCRIPT_ERR_SIG_DER;
-            return false;
-        }
-        
-        // Create a script from the current position  
-        CScript scriptCode(pbegincodehash, pend);
-        
-        // Get the scheme ID based on key type
-        uint8_t scheme_id = (keyType == quantum::KeyType::ML_DSA_65) ? 
-                           quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
-        
-        // Use the signature checker to verify
-        bool fSuccess = checker.CheckQuantumSignature(vchSig, vchPubKey, 
-                                                     scriptCode, sigversion, scheme_id);
-        
-        if (!fSuccess && serror) {
-            *serror = SCRIPT_ERR_SIG_NULLFAIL;
-        }
-        
-        return fSuccess;
+        if (serror) *serror = SCRIPT_ERR_UNKNOWN_ERROR;
+        return false;
     }
+    
+    // Check signature format
+    if (vchSig.empty()) {
+        if (serror) *serror = SCRIPT_ERR_SIG_DER;
+        return false;
+    }
+
+    // Create quantum public key
+    quantum::CQuantumPubKey qPubKey(expectedKeyType, vchPubKey);
+    if (!qPubKey.IsValid()) {
+        if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
+        return false;
+    }
+
+    // Create a script from the current position  
+    CScript scriptCode(pbegincodehash, pend);
+    
+    // Get the scheme ID based on key type
+    uint8_t scheme_id = (expectedKeyType == quantum::KeyType::ML_DSA_65) ? 
+                       quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
+    
+    // Use the signature checker to verify
+    bool fSuccess = checker.CheckQuantumSignature(vchSig, vchPubKey, 
+                                                 scriptCode, sigversion, scheme_id);
+    
+    if (!fSuccess && serror) {
+        *serror = SCRIPT_ERR_SIG_NULLFAIL;
+    }
+    
+    return fSuccess;
 }
 
 }
@@ -564,6 +491,8 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
             //
             if (!script.GetOp(pc, opcode, vchPushValue))
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+            
+            
             if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
                 return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
 
@@ -718,6 +647,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
                 }
                 break;
+
 
                 case OP_CHECKSIG_ML_DSA:
                 case OP_CHECKSIGVERIFY_ML_DSA:

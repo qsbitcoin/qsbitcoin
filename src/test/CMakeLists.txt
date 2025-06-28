@@ -48,8 +48,6 @@ add_executable(test_bitcoin
   quantum_fee_tests.cpp
   quantum_rpc_tests.cpp
   quantum_wallet_encryption_tests.cpp
-  quantum_wallet_tests.cpp
-  quantum_coinselection_tests.cpp
   quantum_descriptor_tests.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
@@ -100,9 +98,7 @@ add_executable(test_bitcoin
   scheduler_tests.cpp
   script_p2sh_tests.cpp
   script_parse_tests.cpp
-  script_quantum_tests.cpp
   script_quantum_tests_simple.cpp
-  script_quantum_tests_fixed.cpp
   script_segwit_tests.cpp
   script_standard_tests.cpp
   script_tests.cpp

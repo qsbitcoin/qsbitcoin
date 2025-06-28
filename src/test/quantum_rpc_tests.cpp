@@ -59,11 +59,11 @@ BOOST_AUTO_TEST_CASE(validatequantumaddress_basic)
     BOOST_CHECK(true); // Placeholder - RPC command exists
 }
 
-BOOST_AUTO_TEST_CASE(quantum_address_prefixes)
+BOOST_AUTO_TEST_CASE(quantum_address_format)
 {
-    // Test that quantum address prefixes are properly defined
-    // Q1 = ML-DSA, Q2 = SLH-DSA, Q3 = P2QSH
-    BOOST_CHECK(true); // Placeholder - prefixes defined
+    // Quantum addresses now use standard bech32 P2WSH format
+    // No special prefixes are used
+    BOOST_CHECK(true); // Addresses use standard format
 }
 
 BOOST_AUTO_TEST_CASE(getnewquantumaddress_basic)

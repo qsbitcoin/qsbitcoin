@@ -200,14 +200,8 @@ RPCHelpMan listaddressgroupings()
         {
             UniValue addressInfo(UniValue::VARR);
             
-            // Check if this is a quantum address and encode appropriately
+            // Encode address (quantum addresses now use standard bech32 format)
             std::string encoded_address = EncodeDestination(address);
-            if (g_quantum_keystore) {
-                int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(address);
-                if (quantum_type > 0) {
-                    encoded_address = EncodeQuantumDestination(address, quantum_type);
-                }
-            }
             
             addressInfo.push_back(encoded_address);
             addressInfo.push_back(ValueFromAmount(balances[address]));
@@ -450,14 +444,8 @@ RPCHelpMan getaddressinfo()
 
     UniValue ret(UniValue::VOBJ);
 
-    // Check if this is a quantum address and encode appropriately
+    // Encode address (quantum addresses now use standard bech32 format)
     std::string currentAddress = EncodeDestination(dest);
-    if (g_quantum_keystore) {
-        int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(dest);
-        if (quantum_type > 0) {
-            currentAddress = EncodeQuantumDestination(dest, quantum_type);
-        }
-    }
     ret.pushKV("address", currentAddress);
 
     CScript scriptPubKey = GetScriptForDestination(dest);
@@ -565,14 +553,8 @@ RPCHelpMan getaddressesbylabel()
     pwallet->ForEachAddrBookEntry([&](const CTxDestination& _dest, const std::string& _label, bool _is_change, const std::optional<AddressPurpose>& _purpose) {
         if (_is_change) return;
         if (_label == label) {
-            // Check if this is a quantum address and encode appropriately
+            // Encode address (quantum addresses now use standard bech32 format)
             std::string address = EncodeDestination(_dest);
-            if (g_quantum_keystore) {
-                int quantum_type = g_quantum_keystore->GetQuantumTypeForAddress(_dest);
-                if (quantum_type > 0) {
-                    address = EncodeQuantumDestination(_dest, quantum_type);
-                }
-            }
             // CWallet::m_address_book is not expected to contain duplicate
             // address strings, but build a separate set as a precaution just in
             // case it does.
