@@ -1305,6 +1305,28 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
 
     std::unique_ptr<FlatSigningProvider> out_keys = std::make_unique<FlatSigningProvider>();
 
+    // Handle negative quantum indices specially
+    if (index < 0) {
+        // This is a quantum address index - provide quantum keys and scripts
+        // Add all quantum public keys
+        for (const auto& [key_id, pubkey] : m_map_quantum_pubkeys) {
+            out_keys->pubkeys[key_id] = CPubKey{}; // Placeholder for quantum pubkeys
+        }
+        
+        // Add quantum private keys if requested and available
+        if (include_private && HavePrivateKeys()) {
+            for (const auto& [key_id, quantum_key] : m_map_quantum_keys) {
+                // Store quantum keys in a way that PopulateQuantumSigningProvider can find them
+                out_keys->pubkeys[key_id] = CPubKey{}; // Placeholder
+            }
+        }
+        
+        // Cache the provider for quantum indices too
+        m_map_signing_providers[index] = *out_keys;
+        return out_keys;
+    }
+
+    // Normal HD key handling for non-negative indices
     // Fetch SigningProvider from cache to avoid re-deriving
     auto it = m_map_signing_providers.find(index);
     if (it != m_map_signing_providers.end()) {

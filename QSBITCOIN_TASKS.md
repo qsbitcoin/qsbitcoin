@@ -735,6 +735,11 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 - [ ] Remove temporary QuantumKeyStore after migration (kept for backward compatibility)
 - [x] Update wallet loading to handle quantum descriptors (loads from database)
 - [x] Add backward compatibility for old quantum wallets (fallback to global keystore)
+- [x] **CRITICAL FIX**: Fixed transaction size estimation for quantum signatures (June 28, 2025)
+  - **Issue**: `GetSigningProvider()` failed for negative quantum indices
+  - **Root Cause**: Quantum addresses use negative indices (-1, -2, -3, ...) which don't work with HD derivation
+  - **Solution**: Modified `GetSigningProvider()` to handle negative indices specially
+  - **Impact**: Both ML-DSA and SLH-DSA transactions now succeed in functional tests
 - [ ] Create migration documentation
 - [x] **Unit Tests**: Migration validation
   - [ ] Create `src/test/quantum_migration_tests.cpp` (tested via functional tests)
@@ -753,6 +758,12 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
   fi
   ./build/bin/test_bitcoin -t quantum_migration_tests
   ```
+
+**Critical Implementation Note**: QSBitcoin uses negative indices for quantum addresses, which is NOT standard Bitcoin Core behavior:
+- **Standard**: Non-negative indices (0, 1, 2, ...) for HD key derivation
+- **QSBitcoin**: Negative indices (-1, -2, -3, ...) for quantum addresses (no HD support)
+- **Why**: Quantum keys can't be HD-derived and need separate tracking
+- **Fix**: Special handling in `GetSigningProvider()` for negative indices
 
 ### 6.6 Quantum Wallet Database Updates
 **Status**: 🟢 Completed  

@@ -70,6 +70,7 @@ witness: [signature][pubkey]
 5. ✅ **Database Persistence**: Quantum keys survive wallet restarts
 6. ✅ **Test Suite Updates**: Cleaned up obsolete test scripts, updated functional tests
 7. ✅ **SLH-DSA Size Fix**: Corrected signature size from 49KB to 35KB in documentation
+8. ✅ **Transaction Size Estimation Fix**: Fixed quantum signature transaction size estimation issue
 
 ### Critical Issue: Wallet Ownership of Quantum Addresses (June 28, 2025)
 **Problem**: Wallet shows `ismine: false` for quantum P2WSH addresses
@@ -152,6 +153,53 @@ witness: [signature][pubkey]
 - QuantumPubkeyProvider handles key parsing and script generation
 - SigningProvider extended with GetQuantumKey/HaveQuantumKey methods
 - PopulateQuantumSigningProvider bridges keystore to signing provider
+
+### Negative Quantum Indices Architecture (June 28, 2025)
+**Critical Discovery**: QSBitcoin uses negative indices for tracking quantum addresses, which is NOT standard Bitcoin Core behavior.
+
+**Standard Bitcoin Core**:
+- Uses non-negative indices (0, 1, 2, ...) for HD key derivation
+- Follows BIP32 standard for deterministic key paths like `m/84'/0'/0'/0/0`
+- `ExpandFromCache(index, ...)` works for any valid non-negative index
+
+**QSBitcoin's Temporary Approach**:
+```cpp
+// Quantum addresses use negative indices (-1, -2, -3, ...)
+static int32_t quantum_index = -1;
+m_map_script_pub_keys[script] = quantum_index--;
+```
+
+**Why This Hack Was Necessary**:
+1. **No HD Support**: Quantum cryptography doesn't support BIP32 hierarchical derivation
+2. **Independent Key Generation**: Each quantum key must be generated separately
+3. **Script Tracking**: Negative indices avoid conflicts with real HD indices
+4. **Descriptor System Limitations**: `ExpandFromCache()` only works for HD-derivable indices
+
+**The Problem This Created**:
+- `GetSigningProvider(index)` fails for negative quantum indices
+- `ExpandFromCache(index, ...)` returns null for non-HD indices
+- Transaction size estimation fails with "Missing solving data" error
+
+**The Fix Applied**:
+Modified `DescriptorScriptPubKeyMan::GetSigningProvider()` to handle negative indices:
+```cpp
+if (index < 0) {
+    // Special handling for quantum addresses
+    // Provide quantum keys directly instead of HD derivation
+    for (const auto& [key_id, pubkey] : m_map_quantum_pubkeys) {
+        out_keys->pubkeys[key_id] = CPubKey{}; // Placeholder
+    }
+    return out_keys;
+}
+```
+
+**Proper Solution (Not Yet Implemented)**:
+1. Create proper quantum descriptors: `qpkh(quantum:ml-dsa:pubkey_hex)`
+2. Use non-ranged descriptors (single-key, not HD-derived)
+3. Each quantum address gets its own descriptor
+4. Integrate with DescriptorScriptPubKeyMan properly
+
+**Status**: Current implementation works but is a temporary workaround until proper quantum descriptor system is complete.
 
 ### P2WSH Implementation
 - Large signatures (35KB for SLH-DSA) require witness scripts

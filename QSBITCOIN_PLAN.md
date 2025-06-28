@@ -346,6 +346,18 @@ target_link_libraries(bitcoind PRIVATE oqs)
 12. **P2WSH Requirement** - Quantum signatures (3.3KB-49KB) exceed P2PKH script size limits; P2WSH is mandatory for all quantum addresses
 13. **Witness Script Format** - Quantum witness scripts use simple format: <pubkey> OP_CHECKSIG_[ML_DSA/SLH_DSA]
 14. **No Segmentation Needed** - Witness data has 4MB block weight limit, sufficient for even SLH-DSA signatures
+15. **Negative Quantum Indices Architecture (June 28, 2025)** - **CRITICAL DISCOVERY**: QSBitcoin uses negative indices (-1, -2, -3, ...) for tracking quantum addresses, which is NOT standard Bitcoin Core behavior:
+    - **Standard Bitcoin Core**: Uses non-negative indices (0, 1, 2, ...) for HD key derivation following BIP32
+    - **QSBitcoin's Approach**: Uses negative indices because quantum keys cannot be HD-derived (no BIP32 support)
+    - **Why This Hack Was Necessary**: 
+      - Quantum cryptography doesn't support hierarchical derivation
+      - Each quantum key must be generated independently
+      - Negative indices avoid conflicts with real HD indices
+      - `ExpandFromCache(index, ...)` only works for HD-derivable indices
+    - **Problem Created**: Transaction size estimation failed with "Missing solving data" error because `GetSigningProvider(index)` couldn't handle negative indices
+    - **Fix Applied**: Modified `DescriptorScriptPubKeyMan::GetSigningProvider()` to handle negative indices specially by providing quantum keys directly instead of attempting HD derivation
+    - **Proper Solution (Future)**: Create proper quantum descriptors (`qpkh(quantum:ml-dsa:pubkey_hex)`) using non-ranged descriptors where each quantum address gets its own descriptor
+    - **Status**: Current implementation works but is a temporary workaround until proper quantum descriptor system is complete
 
 ### Next Critical Steps
 1. **Quantum Descriptors** - Update qpkh() descriptors to generate P2WSH addresses

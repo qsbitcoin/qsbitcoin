@@ -1162,7 +1162,9 @@ public:
     
     std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override {
         // For witness data, weight = size (no 4x multiplier)
-        return *MaxSatSize(use_max_sig);
+        auto sat_size = MaxSatSize(use_max_sig);
+        if (!sat_size) return std::nullopt;
+        return *sat_size;
     }
     
     std::optional<int64_t> MaxSatisfactionElems() const override { 
