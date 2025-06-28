@@ -158,7 +158,7 @@ qpkh(<quantum_key>, <algorithm>)
 
 Where:
 - `quantum_key`: Hex-encoded quantum public key
-- `algorithm`: "ml-dsa" or "slh-dsa"
+- `algorithm`: "ecdsa", "ml-dsa" or "slh-dsa"
 
 ### 6.2 Key Storage
 
@@ -184,7 +184,7 @@ Quantum keys do not support BIP32 hierarchical deterministic derivation. Each qu
   "params": {
     "label": "string",
     "address_type": "string",
-    "algorithm": "ml-dsa|slh-dsa"  // New parameter
+    "algorithm": "ecdsa|ml-dsa|slh-dsa"  // Optional parameter
   }
 }
 ```
