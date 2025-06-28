@@ -28,6 +28,8 @@ QSBitcoin implements two NIST-standardized post-quantum signature schemes via li
 
 ### 1.2 Key Structure
 
+**CRITICAL DIFFERENCE FROM BITCOIN**: Bitcoin keys (CKey, CPubKey) are copyable and support BIP32 derivation. Quantum keys have fundamentally different properties.
+
 ```cpp
 class CQuantumKey {
     uint8_t algorithm_id;     // 0x01 (ML-DSA) or 0x02 (SLH-DSA)
@@ -41,7 +43,15 @@ class CQuantumPubKey {
 };
 ```
 
+#### Key Implementation Requirements:
+1. **Non-Copyable**: Quantum private keys must use move-only semantics (no copy constructor)
+2. **No Derivation**: Cannot derive child keys - each address needs fresh randomness
+3. **Memory Safety**: Must securely erase private key data on destruction
+4. **Size Handling**: Keys are much larger than ECDSA (4KB private, 2KB public for ML-DSA)
+
 ### 1.3 Signature Scheme Interface
+
+**IMPORTANT DIFFERENCE FROM BITCOIN**: Standard Bitcoin Core hardcodes ECDSA and Schnorr signature validation directly in the script interpreter. QSBitcoin introduces an abstraction layer to support multiple signature algorithms.
 
 ```cpp
 class ISignatureScheme {
@@ -52,6 +62,12 @@ class ISignatureScheme {
     virtual size_t GetSignatureSize() = 0;
 };
 ```
+
+#### Implementation Notes for Other Quantum Libraries:
+1. **Library Independence**: The ISignatureScheme interface allows you to use any quantum crypto library (not just liboqs). You only need to implement this interface for your chosen algorithms.
+2. **Algorithm IDs**: Must use 0x01 for ML-DSA and 0x02 for SLH-DSA to maintain compatibility
+3. **Hash Input**: The `hash` parameter is always a 256-bit message digest (Bitcoin transaction hash)
+4. **Signature Format**: Your implementation must produce signatures in the exact binary format expected by the algorithms
 
 ## 2. Script System
 
@@ -82,10 +98,21 @@ ScriptPubKey: OP_0 <32-byte-hash>
 
 ### 2.4 Transaction Input Format
 
+**CRITICAL DIFFERENCE FROM BITCOIN**: Standard Bitcoin uses DER-encoded ECDSA signatures or fixed-size Schnorr signatures. QSBitcoin introduces a new variable-length format.
+
 Quantum signatures in witness data follow this format:
 ```
 [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pubkey]
 ```
+
+#### Detailed Format Specification:
+- **scheme_id**: Single byte (0x01 for ML-DSA, 0x02 for SLH-DSA)
+- **sig_len**: Variable-length integer encoding signature size
+- **signature**: Raw signature bytes from quantum algorithm
+- **pubkey_len**: Variable-length integer encoding public key size  
+- **pubkey**: Raw public key bytes
+
+**Implementation Note**: Unlike ECDSA's DER encoding, quantum signatures use raw binary format directly from the cryptographic library.
 
 ## 3. Address Format
 
@@ -126,9 +153,22 @@ No special prefixes distinguish quantum addresses from regular P2WSH addresses.
 
 ### 4.3 Weight Calculation
 
+**MAJOR DIFFERENCE FROM BITCOIN**: Bitcoin uses a 4x weight factor for all witness data. QSBitcoin introduces variable weight factors to better reflect actual validation costs.
+
 Quantum signatures use special weight factors:
 - ML-DSA signatures: 2x weight factor (vs 4x for ECDSA witness data)
 - SLH-DSA signatures: 3x weight factor
+
+#### Implementation Formula:
+```
+if (is_quantum_signature):
+    if (algorithm == ML_DSA):
+        weight = base_size + (witness_size * 2)
+    elif (algorithm == SLH_DSA):
+        weight = base_size + (witness_size * 3)
+else:
+    weight = base_size + (witness_size * 4)  # Standard Bitcoin
+```
 
 ## 5. Fee Policy
 
@@ -317,17 +357,143 @@ Implement comprehensive tests for:
 | Fee Discount | 0% | 10% | 5% |
 | Use Case | Legacy | Standard | Cold Storage |
 
-## 13. Reference Implementation
+## 13. Implementation Guide for Compatible Forks
+
+### 13.1 Key Differences from Standard Bitcoin
+
+1. **Signature Abstraction Layer**
+   - Bitcoin: Direct ECDSA/Schnorr validation in script interpreter
+   - QSBitcoin: ISignatureScheme interface for algorithm independence
+
+2. **Script Validation Changes**
+   - New function: `EvalChecksigQuantum()` handles quantum opcodes
+   - Requires SCRIPT_VERIFY_QUANTUM_SIGS flag when soft fork active
+   - Quantum opcodes are NOPs when flag not set (backward compatible)
+
+3. **Serialization Differences**
+   - Bitcoin: Fixed-size signatures in witness
+   - QSBitcoin: Variable-length with scheme_id prefix
+   - Must handle signatures up to 50KB
+
+4. **Wallet Architecture**
+   - Bitcoin: BIP32 HD derivation for all keys
+   - QSBitcoin: No derivation for quantum keys, each requires fresh entropy
+   - Descriptor system extended with `qpkh()` descriptor type
+
+### 13.2 Minimal Implementation Checklist
+
+To create a compatible implementation with a different quantum library:
+
+1. **Implement ISignatureScheme Interface**
+   ```cpp
+   class YourMLDSAImpl : public ISignatureScheme {
+       // Your quantum library's ML-DSA implementation
+   };
+   ```
+
+2. **Script Interpreter Modifications**
+   - Add quantum opcode handlers in script/interpreter.cpp
+   - Implement `EvalChecksigQuantum()` function
+   - Parse new signature format with scheme_id
+
+3. **Consensus Rules**
+   - Add SCRIPT_VERIFY_QUANTUM_SIGS flag
+   - Implement soft fork activation logic
+   - Enforce quantum transaction weight limits
+
+4. **RPC Changes**
+   - Extend `getnewaddress` with algorithm parameter
+   - Add `getquantuminfo` command
+   - Update fee estimation for quantum signatures
+
+5. **Wallet Integration**
+   - Add quantum key storage (non-HD)
+   - Implement `qpkh()` descriptor parsing
+   - Extend signing provider for quantum keys
+
+### 13.3 Testing Your Implementation
+
+Essential test cases:
+1. Generate quantum addresses and verify bech32 encoding
+2. Create and broadcast quantum transactions
+3. Verify cross-compatibility with reference implementation
+4. Test soft fork activation on regtest
+5. Validate fee calculations with discounts
+
+### 13.4 Reference Implementation
 
 The reference implementation is available at:
 - Repository: https://github.com/qsbitcoin/qsbitcoin
 - Based on: Bitcoin Core v28.0
 - License: MIT
 
-## Appendix A: Test Vectors
+## Appendix A: Core Script Validation Pseudocode
 
-[Test vectors for quantum signatures would be included here]
+### EvalChecksigQuantum Implementation
 
-## Appendix B: Activation Parameters
+```cpp
+bool EvalChecksigQuantum(const valtype& sig, const valtype& pubkey, 
+                        Script::SignatureScheme scheme, ScriptError* serror) {
+    // 1. Extract scheme_id from signature
+    if (sig.size() < 1) return false;
+    uint8_t scheme_id = sig[0];
+    
+    // 2. Verify scheme matches opcode
+    if ((scheme == MLDSA && scheme_id != 0x01) ||
+        (scheme == SLHDSA && scheme_id != 0x02)) {
+        return false;
+    }
+    
+    // 3. Parse signature format
+    size_t pos = 1;
+    uint64_t sig_len = ReadVarInt(sig, pos);
+    vector<uint8_t> sig_data(sig.begin() + pos, sig.begin() + pos + sig_len);
+    pos += sig_len;
+    
+    uint64_t pubkey_len = ReadVarInt(sig, pos);
+    vector<uint8_t> pubkey_data(sig.begin() + pos, sig.begin() + pos + pubkey_len);
+    
+    // 4. Create appropriate signature scheme
+    unique_ptr<ISignatureScheme> signer;
+    if (scheme_id == 0x01) {
+        signer = make_unique<MLDSAScheme>();
+    } else {
+        signer = make_unique<SLHDSAScheme>();
+    }
+    
+    // 5. Verify signature
+    uint256 sighash = SignatureHash(scriptCode, txTo, nIn, nHashType, amount);
+    return signer->Verify(sighash, sig_data, pubkey_data);
+}
+```
 
-[Specific block heights and deployment windows would be defined here for mainnet activation]
+## Appendix B: Test Vectors
+
+### ML-DSA-65 Test Vector
+```
+Private Key (hex): [4032 bytes]
+Public Key (hex): [1952 bytes]  
+Message: "Bitcoin Signed Message:\nTest"
+Signature (hex): [~3309 bytes]
+```
+
+### SLH-DSA-192f Test Vector
+```
+Private Key (hex): [128 bytes]
+Public Key (hex): [64 bytes]
+Message: "Bitcoin Signed Message:\nTest"
+Signature (hex): [~35664 bytes]
+```
+
+[Complete test vectors to be added with reference implementation]
+
+## Appendix C: Activation Parameters
+
+### Mainnet (Future)
+- Start Time: TBD
+- Timeout: TBD  
+- Threshold: 90% of 2016 blocks
+
+### Testnet/Regtest
+- Status: ALWAYS_ACTIVE
+- No activation required
