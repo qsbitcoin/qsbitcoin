@@ -187,20 +187,20 @@ target_link_libraries(bitcoind PRIVATE oqs)
 ### ✅ Completed Components
 1. **liboqs Integration** - Successfully integrated v0.12.0
 2. **Quantum Key Infrastructure** - CQuantumKey and CQuantumPubKey classes
-3. **Address Format** - Base58Check quantum addresses with Q[type] prefix (Q1/Q2/Q3 + full address)
+3. **Address Format** - Standard bech32 P2WSH addresses for all quantum keys (no special prefixes)
 4. **Script System Extensions** - Quantum opcodes and soft fork activation
 5. **Signature Abstraction Layer** - ISignatureScheme interface
-6. **Dynamic Signature Format** - Extensible format with varint encoding
+6. **Dynamic Signature Format** - Extensible format with varint encoding and embedded public keys
 7. **Transaction Weight Calculations** - Special weight factors for quantum signatures
 8. **Signature Verification Engine** - QuantumSignatureChecker with proper hash computation
 9. **Consensus Rules** - Quantum-specific transaction limits and fee structure
 10. **Basic Tests** - Unit tests for core functionality
 11. **Fee Integration** - Quantum fee adjustments integrated with mempool and validation
 12. **Fee Estimation RPC** - Added estimatequantumfee and estimatequantumtxfee commands
-13. **Wallet Backend** - QuantumScriptPubKeyMan for quantum key management
-14. **Transaction Signing** - Basic quantum signature support in wallet
-15. **Wallet RPC Commands** - All quantum RPC commands implemented and tested
-16. **Quantum Message Signing** - signmessagewithscheme fully functional
+13. **Wallet Backend** - Full descriptor-based quantum key management (no global keystore)
+14. **Transaction Signing** - Full quantum signature support in wallet with P2WSH
+15. **Unified RPC Approach** - Extended standard RPCs instead of separate quantum commands
+16. **Quantum Message Signing** - Full support with embedded public keys in signatures
 17. **Wallet Encryption** - Full encryption support for quantum keys with proper key derivation
 
 ### 🟢 Recently Completed (June 27, 2025)
@@ -231,18 +231,19 @@ target_link_libraries(bitcoind PRIVATE oqs)
    - Removed quantum commitment/segmentation workarounds
 2. **Script Interpreter Updates** - Updated EvalChecksigQuantum for witness verification
 3. **Transaction Signing** - Updated SignStep to handle quantum witness scripts
-4. **RPC Updates** - getnewquantumaddress now generates P2WSH addresses
-   - Modified key_io functions to encode/decode quantum addresses with prefixes
-   - Updated all wallet RPC commands to display quantum addresses correctly
-   - No data is removed from the address - full 20-byte hash is preserved
-
-2. **Legacy QuantumScriptPubKeyMan Removal** - Transitioned to descriptor-based architecture
+4. **Major Architecture Improvements** - Eliminated legacy code and unified approach
+   - **Removed global quantum keystore (g_quantum_keystore)** - Completely eliminated the legacy global keystore system
+   - **Unified quantum address generation** - Extended standard RPCs (getnewaddress, getrawchangeaddress) with optional 'algorithm' parameter
+   - **Removed getnewquantumaddress RPC** - No longer needed due to unified approach
+   - **Extended signmessage/verifymessage** - Now support quantum signatures with embedded public keys
+   - **Fixed quantum signature verification** - Quantum signatures now include public keys since they cannot be recovered like ECDSA
+5. **Legacy QuantumScriptPubKeyMan Removal** - Transitioned to descriptor-based architecture
    - Removed quantum_scriptpubkeyman.h and quantum_scriptpubkeyman.cpp completely
-   - Created temporary QuantumKeyStore class for quantum key management
-   - Updated all RPC and wallet code to use the quantum keystore
+   - Removed quantum_keystore.h and quantum_keystore.cpp (global keystore eliminated)
+   - Updated all RPC and wallet code to use descriptor system directly
    - Removed quantum database functions from walletdb
    - Updated test files to work without legacy classes
-   - This sets the foundation for proper descriptor wallet integration
+   - All quantum functionality now properly integrated with descriptor-based wallet system
 
 ### 🟢 Recently Completed (June 27, 2025 - Update 5)
 1. **Quantum Descriptor Implementation** - Full integration with Bitcoin Core's descriptor system
@@ -276,9 +277,7 @@ target_link_libraries(bitcoind PRIVATE oqs)
    - Successfully tested with multiple quantum addresses (ML-DSA and SLH-DSA)
 
 ### 🟡 In Progress
-1. **UTXO Recognition for Quantum Addresses** - Quantum addresses can receive funds but wallet doesn't recognize UTXOs
-   - Issue: Quantum keys stored in regular descriptors don't understand quantum address format
-   - Need proper quantum descriptors (qpkh) created during wallet setup
+1. **Documentation Updates** - Update all documentation to reflect the new unified RPC approach
 2. **Core Implementation Testing & Bug Fixes** - Focus on making existing quantum functionality robust
 3. **Key Migration Utilities** - Tools for migrating from ECDSA to quantum keys (LOW PRIORITY - deferred until core is solid)
 
@@ -342,10 +341,12 @@ target_link_libraries(bitcoind PRIVATE oqs)
 8. **Key Storage** - Encrypted keys stored separately from plaintext; on-demand decryption for signing operations
 9. **Coin Selection** - Quantum input size calculation must precede descriptor-based calculation; quantum scripts don't need SigningProvider
 10. **Descriptor Architecture** - Bitcoin Core's descriptor wallet system is the correct approach for quantum support; legacy ScriptPubKeyMan not needed
-11. **Quantum Address Display** - Q[type] prefix (Q1/Q2/Q3) prepended to full address for display; no data removed from underlying address
-12. **P2WSH Requirement** - Quantum signatures (3.3KB-49KB) exceed P2PKH script size limits; P2WSH is mandatory for all quantum addresses
+11. **Quantum Signature Format** - Quantum signatures must include public keys since they cannot be recovered from signatures like ECDSA
+12. **P2WSH Requirement** - Quantum signatures (3.3KB-35KB) exceed P2PKH script size limits; P2WSH is mandatory for all quantum addresses
 13. **Witness Script Format** - Quantum witness scripts use simple format: <pubkey> OP_CHECKSIG_[ML_DSA/SLH_DSA]
 14. **No Segmentation Needed** - Witness data has 4MB block weight limit, sufficient for even SLH-DSA signatures
+15. **Unified RPC Design** - Extending existing RPCs (getnewaddress, getrawchangeaddress) is cleaner than separate quantum commands
+16. **Global Keystore Elimination** - Removing g_quantum_keystore improved architecture by fully integrating with descriptor system
 15. **Negative Quantum Indices Architecture (June 28, 2025)** - **CRITICAL DISCOVERY**: QSBitcoin uses negative indices (-1, -2, -3, ...) for tracking quantum addresses, which is NOT standard Bitcoin Core behavior:
     - **Standard Bitcoin Core**: Uses non-negative indices (0, 1, 2, ...) for HD key derivation following BIP32
     - **QSBitcoin's Approach**: Uses negative indices because quantum keys cannot be HD-derived (no BIP32 support)
@@ -360,11 +361,11 @@ target_link_libraries(bitcoind PRIVATE oqs)
     - **Status**: Current implementation works but is a temporary workaround until proper quantum descriptor system is complete
 
 ### Next Critical Steps
-1. **Quantum Descriptors** - Update qpkh() descriptors to generate P2WSH addresses
+1. **Documentation Updates** - Update all documentation to reflect unified RPC approach
 2. **Integration Testing** - Full end-to-end testing with quantum P2WSH transactions
 3. **Network Testing** - Deploy to testnet for real-world validation
-4. **Fee Estimation RPC** - Verify fee calculations work correctly with witness data
-5. **Performance Optimization** - Profile signature verification performance
+4. **Performance Optimization** - Profile signature verification performance
+5. **User Experience** - Polish error messages and help text for unified RPCs
 
 ## Living Document Notice
 
@@ -376,4 +377,4 @@ This plan is a **living document** that will be updated throughout the developme
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
 *Last Updated: June 28, 2025*  
-*Version: 4.0* - P2WSH implementation completed - all quantum addresses now use witness scripts to handle large signatures
+*Version: 4.1* - Major architecture improvements: removed global keystore, unified RPC approach, fixed signature verification

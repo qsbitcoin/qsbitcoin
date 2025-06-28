@@ -1,8 +1,8 @@
 # DevNotesTasks.md - QSBitcoin Developer Quick Reference
 
 ## Current Status (June 28, 2025)
-**Implementation**: ~95% complete - Core quantum signature functionality fully implemented
-**Architecture**: Transitioned to descriptor-based wallet system with P2WSH for all quantum addresses
+**Implementation**: ~97% complete - Core quantum signature functionality fully implemented
+**Architecture**: Unified quantum address generation with standard RPCs, removed global keystore
 
 ## Quick Commands
 
@@ -25,9 +25,11 @@ build/test/functional/test_runner.py wallet_quantum.py      # Quantum functional
 rm -rf ~/.bitcoin/regtest/wallets/*
 ./build/bin/bitcoin-cli -regtest createwallet "test_wallet"
 
-# Generate quantum address
-./build/bin/bitcoin-cli -regtest getnewquantumaddress "ML-DSA-65"   # Returns bcrt1q... address
-./build/bin/bitcoin-cli -regtest getnewquantumaddress "SLH-DSA-192f" # Returns bcrt1q... address
+# Generate quantum address (unified approach - June 28, 2025)
+./build/bin/bitcoin-cli -regtest getnewaddress "" "" "ml-dsa"    # Returns bcrt1q... ML-DSA address
+./build/bin/bitcoin-cli -regtest getnewaddress "" "" "slh-dsa"   # Returns bcrt1q... SLH-DSA address
+./build/bin/bitcoin-cli -regtest getrawchangeaddress "" "ml-dsa"  # ML-DSA change address
+./build/bin/bitcoin-cli -regtest getrawchangeaddress "" "slh-dsa" # SLH-DSA change address
 ```
 
 ## Critical Architecture Notes
@@ -57,8 +59,8 @@ witness: [signature][pubkey]
 - `src/crypto/quantum_key.h` - CQuantumKey, CQuantumPubKey classes
 - `src/script/quantum_witness.h` - P2WSH creation functions
 - `src/script/descriptor.cpp` - Quantum descriptor support (qpkh)
-- `src/wallet/quantum_keystore.cpp` - Temporary global keystore
-- `src/wallet/scriptpubkeyman.cpp` - SPKM quantum integration
+- `src/wallet/scriptpubkeyman.cpp` - SPKM quantum integration with unified RPC approach
+- Note: global quantum keystore removed June 28, 2025
 
 ## Current Issues & Next Steps
 
@@ -71,6 +73,9 @@ witness: [signature][pubkey]
 6. ✅ **Test Suite Updates**: Cleaned up obsolete test scripts, updated functional tests
 7. ✅ **SLH-DSA Size Fix**: Corrected signature size from 49KB to 35KB in documentation
 8. ✅ **Transaction Size Estimation Fix**: Fixed quantum signature transaction size estimation issue
+9. ✅ **Global Keystore Removal** (June 28, 2025): Eliminated g_quantum_keystore completely
+10. ✅ **Unified RPC Approach** (June 28, 2025): Extended getnewaddress/getrawchangeaddress with algorithm parameter
+11. ✅ **Quantum Signature Format** (June 28, 2025): Fixed verification by embedding public keys in signatures
 
 ### Critical Issue: Wallet Ownership of Quantum Addresses (June 28, 2025)
 **Problem**: Wallet shows `ismine: false` for quantum P2WSH addresses
@@ -115,19 +120,16 @@ witness: [signature][pubkey]
    - The descriptor SPKM would then automatically track and persist the P2WSH scripts
 
 ### Immediate TODOs
-1. **Fix wallet ownership** (CRITICAL - PARTIALLY COMPLETE):
-   - ✅ Implemented `QPKDescriptor` class for `qpk()` inside `wsh()`
-   - ✅ Parser recognizes quantum descriptors
-   - ✅ Updated `getnewquantumaddress` to add scripts to SPKM
-   - ✅ Modified IsMine to check for quantum P2WSH addresses
-   - ❌ IsMine still returns false - script mapping not persisting
-   - ❌ Bitcoind crashes intermittently with quantum operations
-   - 🔧 Need proper descriptor import flow instead of manual script addition
+1. **Architecture improvements** (COMPLETED June 28, 2025):
+   - ✅ Removed global `g_quantum_keystore` completely
+   - ✅ Unified quantum address generation with standard RPCs
+   - ✅ Fixed quantum signature verification with embedded public keys
+   - ✅ All quantum functionality now properly integrated with descriptors
 
-2. **Clean up temporary code**:
-   - Remove global `g_quantum_keystore` after descriptor fix
-   - Remove manual witness script storage
-   - Consolidate quantum wallet setup functions
+2. **Remaining optimizations**:
+   - Polish error messages for unified RPC approach
+   - Update help text for getnewaddress/getrawchangeaddress
+   - Consider adding quantum-specific validation RPCs
 
 3. **Integration testing**:
    - Test wallet ownership of quantum addresses
@@ -302,4 +304,4 @@ grep -i "quantum\|error" ~/.bitcoin/regtest/debug.log
 
 ---
 *Last Updated: June 28, 2025*
-*Version: 1.2 - Removed obsolete Q-prefix system; quantum addresses now use standard bech32*
+*Version: 1.3 - Major architecture improvements: removed global keystore, unified RPC approach*
