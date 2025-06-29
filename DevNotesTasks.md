@@ -30,7 +30,16 @@ rm -rf ~/.bitcoin/regtest/wallets/*
 ./build/bin/bitcoin-cli -regtest getnewaddress "" "" "slh-dsa"   # Returns bcrt1q... SLH-DSA address
 ./build/bin/bitcoin-cli -regtest getrawchangeaddress "" "ml-dsa"  # ML-DSA change address
 ./build/bin/bitcoin-cli -regtest getrawchangeaddress "" "slh-dsa" # SLH-DSA change address
+
+
+
 ```
+
+debug tips:
+run regtest and bitcoin-cli, delete all wallet and chain data. mine some blocks, make keys of all types, try    │
+│   send receive, and check utxo and balance, then mine more blocks, then restart bitcoind and use bitcloin-cli to  │
+│   see if everything works. only use bitcoin-cli directly and dont make sh files. also each bash command does      │
+│   not store shell variables from previous bash
 
 ## Critical Architecture Notes
 

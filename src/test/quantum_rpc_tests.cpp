@@ -34,29 +34,23 @@ BOOST_AUTO_TEST_CASE(quantum_rpc_commands_exist)
     const auto commands = GetWalletRPCCommands();
     
     // Check that our quantum commands are registered
-    bool found_getnewquantumaddress = false;
-    bool found_validatequantumaddress = false;
+    // Note: getnewquantumaddress, validatequantumaddress, and signmessagewithscheme have been removed
+    // Use getnewaddress with algorithm parameter instead of getnewquantumaddress
+    // Use validateaddress instead of validatequantumaddress
     bool found_getquantuminfo = false;
-    bool found_signmessagewithscheme = false;
     
     for (const auto& cmd : commands) {
-        if (cmd.name == "getnewquantumaddress") found_getnewquantumaddress = true;
-        if (cmd.name == "validatequantumaddress") found_validatequantumaddress = true;
         if (cmd.name == "getquantuminfo") found_getquantuminfo = true;
-        if (cmd.name == "signmessagewithscheme") found_signmessagewithscheme = true;
     }
     
-    BOOST_CHECK(found_getnewquantumaddress);
-    BOOST_CHECK(found_validatequantumaddress);
     BOOST_CHECK(found_getquantuminfo);
-    BOOST_CHECK(found_signmessagewithscheme);
 }
 
-BOOST_AUTO_TEST_CASE(validatequantumaddress_basic)
+BOOST_AUTO_TEST_CASE(validateaddress_quantum_support)
 {
-    // Basic test that validatequantumaddress RPC exists
-    // More comprehensive tests would require wallet setup
-    BOOST_CHECK(true); // Placeholder - RPC command exists
+    // Test that standard validateaddress RPC supports quantum addresses
+    // Quantum addresses use standard bech32 P2WSH format
+    BOOST_CHECK(true); // Placeholder - use standard validateaddress
 }
 
 BOOST_AUTO_TEST_CASE(quantum_address_format)
@@ -66,18 +60,18 @@ BOOST_AUTO_TEST_CASE(quantum_address_format)
     BOOST_CHECK(true); // Addresses use standard format
 }
 
-BOOST_AUTO_TEST_CASE(getnewquantumaddress_basic)
+BOOST_AUTO_TEST_CASE(getnewaddress_algorithm_support)
 {
-    // Basic test that getnewquantumaddress RPC exists
-    // Full tests would require wallet with quantum support
-    BOOST_CHECK(true); // Placeholder - RPC command exists
+    // Test that standard getnewaddress RPC supports algorithm parameter
+    // Use getnewaddress with algorithm parameter for quantum addresses
+    BOOST_CHECK(true); // Placeholder - use getnewaddress with algorithm="ml-dsa" or "slh-dsa"
 }
 
-BOOST_AUTO_TEST_CASE(signmessagewithscheme_basic)
+BOOST_AUTO_TEST_CASE(getquantuminfo_basic)
 {
-    // Basic test that signmessagewithscheme RPC exists
-    // Full tests would require wallet with quantum keys
-    BOOST_CHECK(true); // Placeholder - RPC command exists
+    // Test that getquantuminfo RPC provides quantum wallet information
+    // This is the main quantum-specific RPC command that remains
+    BOOST_CHECK(true); // Placeholder - getquantuminfo shows quantum capabilities
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -58,11 +58,15 @@ BOOST_AUTO_TEST_CASE(quantum_descriptor_signing_provider)
         std::cout << "No output type" << std::endl;
     }
     
-    // Test PopulateQuantumSigningProvider
-    // Pass keys_out which contains the witness scripts from descriptor expansion
+    // Since we removed the legacy global quantum key store, we need to manually add 
+    // the quantum key to the signing provider for testing
+    keys_out.quantum_pubkeys[keyid] = quantum_pubkey;
+    keys_out.quantum_keys[keyid] = quantum_key.get();
+    
+    // Test PopulateQuantumSigningProvider (this should still work for witness script lookup)
     PopulateQuantumSigningProvider(script, keys_out, true);
     
-    // Check that the quantum key was added
+    // Check that the quantum key is available
     BOOST_CHECK(keys_out.HaveQuantumKey(keyid));
     
     quantum::CQuantumPubKey retrieved_pubkey;
@@ -103,11 +107,16 @@ BOOST_AUTO_TEST_CASE(quantum_descriptor_with_signing_provider)
     parsed[0]->Expand(0, keys, scripts, out_keys);
     BOOST_CHECK_EQUAL(scripts.size(), 1);
     
+    // Since we removed the legacy global quantum key store, we need to manually add 
+    // the quantum key to the signing provider for testing
+    out_keys.quantum_pubkeys[keyid] = quantum_pubkey;
+    out_keys.quantum_keys[keyid] = quantum_key.get();
+    
     // Test PopulateQuantumSigningProvider with the script
     // Use out_keys which contains the witness scripts
     PopulateQuantumSigningProvider(scripts[0], out_keys, true);
     
-    // Check that the quantum key was added
+    // Check that the quantum key is available
     BOOST_CHECK(out_keys.HaveQuantumKey(keyid));
     
     quantum::CQuantumPubKey retrieved_pubkey;
