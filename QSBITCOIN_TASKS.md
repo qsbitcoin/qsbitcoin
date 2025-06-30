@@ -1,5 +1,13 @@
 # QSBitcoin Task Plan - Signature Implementation
 
+## ⚠️ CRITICAL STATUS UPDATE (June 30, 2025)
+**Current Blocker**: Wallet cannot spend from quantum addresses - Task 6.7 must be completed
+- ✅ Quantum addresses can be generated and receive funds
+- ✅ Soft fork allows large signatures (3.3KB ML-DSA, 35KB SLH-DSA) in witness scripts
+- ❌ **CANNOT SPEND**: Private keys not accessible in signing flow
+- **Root Cause**: `PopulateQuantumSigningProvider()` only provides public keys
+- **Fix Required**: Either quick fix to expose private keys or complete descriptor integration
+
 ## Overview
 This document tracks all tasks required to implement quantum-safe signatures in QSBitcoin using liboqs. Tasks are organized by dependency order and include detailed descriptions for developers and AI agents.
 
@@ -777,6 +785,43 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 **Status**: 🟢 Completed  
 **Priority**: Medium  
 **Dependencies**: 6.4  
+
+### 6.7 Fix Quantum Wallet Signing Integration
+**Status**: 🔴 Not Started - CRITICAL BLOCKER  
+**Priority**: CRITICAL  
+**Dependencies**: 6.4, 6.5, 6.6  
+**Description**: Complete integration between quantum keystore and wallet signing system
+**Problem**: Wallet cannot spend from quantum addresses - "No quantum private key found"
+**Root Cause**: PopulateQuantumSigningProvider() only provides public keys, not private keys
+**Tasks**:
+- [ ] **Option 1 - Quick Fix**: Modify PopulateQuantumSigningProvider to include private keys
+  - [ ] Update function to check temporary keystore for private keys
+  - [ ] Add GetQuantumKey() method to signing provider interface
+  - [ ] Ensure private keys are accessible during SignStep()
+- [ ] **Option 2 - Proper Fix**: Complete descriptor integration
+  - [ ] Store quantum private keys in wallet database
+  - [ ] Create proper quantum descriptors with private key material
+  - [ ] Update key generation to use descriptor flow
+  - [ ] Remove temporary keystore completely
+- [ ] Test quantum transaction signing end-to-end
+- [ ] Verify spending from both ML-DSA and SLH-DSA addresses
+- [ ] Update functional tests to verify full transaction cycle
+- [ ] **Unit Tests**: 
+  - [ ] Create quantum_signing_tests.cpp
+  - [ ] Test private key retrieval in signing flow
+  - [ ] Test witness generation with quantum signatures
+- [ ] **Build & Test**:
+  ```bash
+  ninja -C build -j$(nproc)
+  ./build/bin/test_bitcoin -t quantum_signing_tests
+  build/test/functional/test_runner.py wallet_quantum.py
+  ```
+
+**Testing Results (June 30, 2025)**:
+- ✅ Quantum addresses can receive funds
+- ✅ Soft fork allows large signatures in witness
+- ❌ Cannot spend - missing private key access
+- Debug log: "[QUANTUM] No quantum private key found for keyid=..."  
 **Description**: Update wallet database for descriptor-based quantum keys
 **Tasks**:
 - [x] Remove obsolete quantum database keys (QUANTUM_KEY, etc.) (legacy code removed)
@@ -1034,18 +1079,20 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 
 ## Progress Tracking
 
-### Overall Progress
-- **Total Tasks**: 177 (153 original + 24 for descriptor implementation)
-- **Completed**: 153 (all critical features completed + major architecture improvements)
-- **Critical Remaining**: 0 (all critical features implemented)
+### Overall Progress (Updated June 30, 2025)
+- **Total Tasks**: 178 (153 original + 24 for descriptor implementation + 1 critical fix)
+- **Completed**: 154 (including quantum soft fork implementation)
+- **Critical Remaining**: 1 (wallet signing integration)
+  - ❌ **CRITICAL BLOCKER**: Wallet cannot spend from quantum addresses
+  - ✅ Soft fork implementation - Completed June 30, 2025
   - ✅ Migration tasks (6.5) - Completed
   - ✅ Database tasks (6.6) - Completed
   - ✅ P2WSH implementation - Completed
   - ✅ Test suite cleanup - Completed
   - ✅ Global keystore removal - Completed June 28, 2025
   - ✅ Unified RPC approach - Completed June 28, 2025
-- **Optional/Deferred**: 24 (network protocol & comprehensive testing)
-- **Actual Completion**: 100% of critical features, 86% of total (24 optional tasks remain)
+- **Optional/Deferred**: 23 (network protocol & some testing)
+- **Actual Completion**: 99% of critical features (1 blocker), 87% of total
 
 ### Phase Progress
 - Phase 1 (Foundation): 100% (18/18 tasks) ✅
@@ -1053,17 +1100,20 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 - Phase 3 (Transactions): 100% (24/24 tasks) ✅
 - Phase 4 (Consensus): 100% (22/22 tasks) ✅
 - Phase 5 (Network): 0% (0/13 tasks) **[OPTIONAL - May not be needed]**
-- Phase 6 (Wallet): 100% (45/45 tasks) ✅ **[All descriptor tasks + architecture improvements completed]**
+- Phase 6 (Wallet): 98% (45/46 tasks) 🔴 **[1 CRITICAL task remaining - wallet signing]**
   - Original tasks: 100% complete (17/17)
   - New descriptor tasks: 100% complete (25/25) - Full migration to descriptor system
   - Architecture improvements: 100% complete (3/3) - Global keystore removal, unified RPCs
+  - Critical fix required: 0% complete (0/1) - Task 6.7 wallet signing integration
 - Phase 7 (Testing): 0% (0/14 tasks) **[DEFERRED - Tests written with features]**
 
-### Critical Path Summary
-- **Core implementation is feature-complete** - All essential quantum signature functionality is implemented
+### Critical Path Summary (Updated June 30, 2025)
+- **Core implementation is 99% complete** - Missing wallet signing integration (Task 6.7)
 - **Architecture transition COMPLETED** - Successfully moved from legacy ScriptPubKeyMan to descriptor-based system
-- **P2WSH implementation COMPLETED** - All quantum addresses now use witness scripts to handle large signatures
-- **Quantum addresses fully functional** - Using standard bech32 P2WSH format
+- **P2WSH implementation COMPLETED** - All quantum addresses now use witness scripts to handle large signatures  
+- **Soft fork implementation COMPLETED** - Large quantum signatures bypass 520-byte limit
+- **Quantum addresses can RECEIVE but NOT SPEND** - Critical blocker in signing flow
+- **CRITICAL BLOCKER**: PopulateQuantumSigningProvider() missing private key access
 - **Quantum descriptor support COMPLETED** - Major milestone achieved:
   - `descriptor.cpp` now fully parses quantum descriptors (qpkh)
   - `QuantumPubkeyProvider` and `QPKHDescriptor` classes implemented

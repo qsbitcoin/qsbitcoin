@@ -1,8 +1,8 @@
 # DevNotesTasks.md - QSBitcoin Developer Quick Reference
 
-## Current Status (June 28, 2025)
-**Implementation**: ~97% complete - Core quantum signature functionality fully implemented
-**Architecture**: Unified quantum address generation with standard RPCs, removed global keystore
+## Current Status (June 30, 2025)
+**Implementation**: ~94% complete - Quantum soft fork working, wallet signing integration pending
+**Architecture**: Unified quantum address generation with standard RPCs, soft fork bypasses push limits
 
 ## Quick Commands
 
@@ -94,9 +94,10 @@ witness: [signature][pubkey]
     - Successfully tested spending from quantum addresses on regtest
     - Soft fork already ALWAYS_ACTIVE on regtest/testnet for testing
 
-### Critical Issue: Wallet Ownership of Quantum Addresses (June 28, 2025)
-**Problem**: Wallet shows `ismine: false` for quantum P2WSH addresses
-**Root Cause**: Quantum addresses are created outside the descriptor flow, breaking wallet ownership tracking
+### Critical Issue: Wallet Cannot Spend from Quantum Addresses (June 30, 2025)
+**Problem**: While quantum addresses can receive funds, spending fails with "No quantum private key found"
+**Root Cause**: Incomplete integration between temporary quantum keystore and wallet's signing system
+**Impact**: This is the last major blocker - consensus rules work but wallet integration incomplete
 
 #### Implementation Status
 1. **✅ Descriptor language extended** for quantum P2WSH:
@@ -137,32 +138,39 @@ witness: [signature][pubkey]
    - The descriptor SPKM would then automatically track and persist the P2WSH scripts
 
 ### Immediate TODOs
-1. **Architecture improvements** (COMPLETED June 28, 2025):
-   - ✅ Removed global `g_quantum_keystore` completely
-   - ✅ Unified quantum address generation with standard RPCs
-   - ✅ Fixed quantum signature verification with embedded public keys
-   - ✅ All quantum functionality now properly integrated with descriptors
 
-2. **Remaining optimizations**:
-   - Polish error messages for unified RPC approach
-   - Update help text for getnewaddress/getrawchangeaddress
-   - Consider adding quantum-specific validation RPCs
+1. **🔴 CRITICAL - Fix Wallet Signing Integration** (Tasks 6.5/6.6):
+   - The quantum keystore is not accessible during transaction signing
+   - `GetSigningProvider()` cannot retrieve quantum private keys
+   - Need to either:
+     a) Complete migration from temporary keystore to descriptor system
+     b) Add quantum key lookup to signing provider population
+   - This is THE blocker preventing spending from quantum addresses
 
-3. **Integration testing**:
-   - Test wallet ownership of quantum addresses
-   - Verify spending from quantum addresses works
-   - Multi-wallet quantum transaction tests
-   - Fee estimation validation
+2. **Testing Results Summary** (June 30, 2025):
+   - ✅ Quantum addresses can be generated (ML-DSA and SLH-DSA)
+   - ✅ Quantum addresses can receive funds successfully
+   - ✅ Soft fork rules allow large signatures in witness scripts
+   - ❌ Cannot spend from quantum addresses - "No quantum private key found"
+   - ✅ All unit tests pass including new soft fork tests
+   - ✅ Consensus validation works correctly
 
-4. **Documentation**:
-   - Update RPC help text with examples
-   - Document quantum descriptor syntax
-   - Migration guide for users
+3. **Next Implementation Steps**:
+   - Fix `PopulateQuantumSigningProvider()` to provide private keys
+   - Update wallet database to persist quantum keys properly
+   - Complete descriptor integration for quantum addresses
+   - Add functional test for full quantum transaction cycle
+
+4. **Documentation Updates Needed**:
+   - Document current spending limitation
+   - Update QSBITCOIN_TASKS.md with completion status
+   - Add troubleshooting guide for quantum addresses
 
 ### Known Issues
-1. **Key Mismatch Issue**: Some quantum addresses contain keys not in wallet (fixed by creating fresh addresses)
-2. **Test coverage**: Some transaction validation tests need proper context
-3. **Migration tools**: ECDSA→quantum migration utilities not implemented
+1. **CRITICAL**: Cannot spend from quantum addresses due to missing private key access in signing flow
+2. **Key Access**: Quantum private keys stored in temporary keystore not accessible during signing
+3. **Test coverage**: Some transaction validation tests need proper context
+4. **Migration tools**: ECDSA→quantum migration utilities not implemented
 
 ## Key Development Learnings
 
@@ -318,6 +326,31 @@ grep -i "quantum\|error" ~/.bitcoin/regtest/debug.log
 ./build/bin/bitcoin-cli -regtest getwalletinfo
 ```
 
+## Detailed Analysis: Quantum Private Key Access Issue
+
+### The Problem
+When attempting to spend from a quantum address, the signing flow fails with:
+```
+[QUANTUM] No quantum private key found for keyid=c7c84e1022b64a4df492d89ff0c8742f5ce2c324
+```
+
+### Root Cause Analysis
+1. **Temporary Keystore Isolation**: Quantum keys are stored in a temporary `std::map` in scriptpubkeyman.cpp
+2. **Signing Provider Gap**: `PopulateQuantumSigningProvider()` only adds public keys, not private keys
+3. **No Database Persistence**: Quantum private keys are not saved to wallet database
+4. **Descriptor Mismatch**: Quantum addresses created outside descriptor flow
+
+### Why This Happened
+- Initial implementation focused on address generation and receiving
+- Temporary keystore was meant as placeholder until descriptor integration
+- Signing flow requires proper key provider integration
+- The gap between temporary implementation and full integration
+
+### The Fix Required
+Either:
+1. **Quick Fix**: Modify `PopulateQuantumSigningProvider()` to add private keys from temporary store
+2. **Proper Fix**: Complete descriptor integration so quantum keys are first-class wallet citizens
+
 ---
 *Last Updated: June 30, 2025*
-*Version: 1.5 - Completed quantum signature soft fork implementation with successful testing*
+*Version: 1.6 - Quantum soft fork complete, identified wallet signing as last major blocker*
