@@ -301,6 +301,9 @@ private:
     std::map<CKeyID, std::unique_ptr<quantum::CQuantumKey>> m_map_quantum_keys GUARDED_BY(cs_desc_man);
     std::map<CKeyID, quantum::CQuantumPubKey> m_map_quantum_pubkeys GUARDED_BY(cs_desc_man);
     std::map<CKeyID, std::pair<quantum::CQuantumPubKey, std::vector<unsigned char>>> m_map_crypted_quantum_keys GUARDED_BY(cs_desc_man);
+    
+    //! Witness script storage for P2WSH outputs (key is SHA256 hash of script)
+    std::map<uint256, CScript> m_map_witness_scripts GUARDED_BY(cs_desc_man);
 
     //! keeps track of whether Unlock has run a thorough check before
     bool m_decryption_thoroughly_checked = false;
@@ -404,12 +407,21 @@ public:
     size_t GetQuantumKeyCount() const;
     void GetQuantumKeyIDs(std::vector<CKeyID>& keyids) const;
     void AddScriptPubKey(const CScript& script);
+    void AddWitnessScript(const CScript& witness_script);
+    bool GetWitnessScript(const uint256& witness_hash, CScript& script) const;
+    
+    // Internal versions for loading from database (don't persist)
+    void LoadScriptPubKey(const CScript& script, int32_t index);
+    void LoadWitnessScript(const CScript& witness_script);
 
     bool HasWalletDescriptor(const WalletDescriptor& desc) const;
     util::Result<void> UpdateWalletDescriptor(WalletDescriptor& descriptor);
     bool CanUpdateToWalletDescriptor(const WalletDescriptor& descriptor, std::string& error);
     void AddDescriptorKey(const CKey& key, const CPubKey &pubkey);
     void WriteDescriptor();
+    
+    // SigningProvider implementation - support witness scripts
+    bool GetCScript(const CScriptID& scriptid, CScript& script) const;
 
     WalletDescriptor GetWalletDescriptor() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const override;

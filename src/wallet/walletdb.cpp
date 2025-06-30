@@ -63,6 +63,8 @@ const std::string WALLETDESCRIPTORCKEY{"walletdescriptorckey"};
 const std::string WALLETDESCRIPTORKEY{"walletdescriptorkey"};
 const std::string WALLETDESCRIPTORQKEY{"walletdescriptorqkey"};
 const std::string WALLETDESCRIPTORCQKEY{"walletdescriptorcqkey"};
+const std::string WALLETDESCRIPTORSCRIPT{"walletdescriptorscript"};
+const std::string WALLETDESCRIPTORWITNESSSCRIPT{"walletdescriptorwitnessscript"};
 const std::string WATCHMETA{"watchmeta"};
 const std::string WATCHS{"watchs"};
 const std::string QUANTUM_KEY{"qkey"};
@@ -229,21 +231,31 @@ bool WalletBatch::EraseActiveScriptPubKeyMan(uint8_t type, bool internal)
 
 bool WalletBatch::WriteDescriptorKey(const uint256& desc_id, const CPubKey& pubkey, const CPrivKey& privkey)
 {
+    LogPrintf("[SEGWIT] WriteDescriptorKey: desc_id=%s, pubkey=%s, privkey_size=%d\n", 
+              desc_id.ToString(), HexStr(pubkey), privkey.size());
+    
     // hash pubkey/privkey to accelerate wallet load
     std::vector<unsigned char> key;
     key.reserve(pubkey.size() + privkey.size());
     key.insert(key.end(), pubkey.begin(), pubkey.end());
     key.insert(key.end(), privkey.begin(), privkey.end());
 
-    return WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORKEY, std::make_pair(desc_id, pubkey)), std::make_pair(privkey, Hash(key)), false);
+    bool result = WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORKEY, std::make_pair(desc_id, pubkey)), std::make_pair(privkey, Hash(key)), false);
+    LogPrintf("[SEGWIT] WriteDescriptorKey result: %d\n", result);
+    return result;
 }
 
 bool WalletBatch::WriteCryptedDescriptorKey(const uint256& desc_id, const CPubKey& pubkey, const std::vector<unsigned char>& secret)
 {
+    LogPrintf("[SEGWIT] WriteCryptedDescriptorKey: desc_id=%s, pubkey=%s, secret_size=%d\n", 
+              desc_id.ToString(), HexStr(pubkey), secret.size());
+    
     if (!WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORCKEY, std::make_pair(desc_id, pubkey)), secret, false)) {
+        LogPrintf("[SEGWIT] WriteCryptedDescriptorKey: WriteIC failed\n");
         return false;
     }
     EraseIC(std::make_pair(DBKeys::WALLETDESCRIPTORKEY, std::make_pair(desc_id, pubkey)));
+    LogPrintf("[SEGWIT] WriteCryptedDescriptorKey: success\n");
     return true;
 }
 
@@ -297,9 +309,14 @@ bool WalletBatch::WriteDescriptorCacheItems(const uint256& desc_id, const Descri
 
 bool WalletBatch::WriteQuantumDescriptorKey(const uint256& desc_id, const quantum::CQuantumPubKey& pubkey, const quantum::CQuantumKey& privkey)
 {
+    LogPrintf("[QUANTUM] WriteQuantumDescriptorKey: desc_id=%s, pubkey_type=%d\n", 
+              desc_id.ToString(), (int)pubkey.GetType());
+    
     // Get the private and public key data
     quantum::secure_vector priv_data = privkey.GetPrivKeyData();
     const auto& pub_data = pubkey.GetKeyData();
+    LogPrintf("[QUANTUM] WriteQuantumDescriptorKey: pubkey_size=%d, privkey_size=%d\n", 
+              pub_data.size(), priv_data.size());
     
     // Create integrity hash
     std::vector<unsigned char> to_hash;
@@ -313,21 +330,31 @@ bool WalletBatch::WriteQuantumDescriptorKey(const uint256& desc_id, const quantu
     key_data.push_back(static_cast<uint8_t>(privkey.GetType()));
     key_data.insert(key_data.end(), pub_data.begin(), pub_data.end());
     key_data.insert(key_data.end(), priv_data.begin(), priv_data.end());
+    LogPrintf("[QUANTUM] WriteQuantumDescriptorKey: total key_data size=%d\n", key_data.size());
     
     CKeyID keyid = pubkey.GetID();
+    LogPrintf("[QUANTUM] WriteQuantumDescriptorKey: keyid=%s\n", keyid.ToString());
+    
     // Store as pair of (key_data, hash) like WriteDescriptorKey does
-    return WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORQKEY, std::make_pair(desc_id, keyid)), 
-                   std::make_pair(key_data, Hash(to_hash)), false);
+    bool result = WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORQKEY, std::make_pair(desc_id, keyid)), 
+                         std::make_pair(key_data, Hash(to_hash)), false);
+    LogPrintf("[QUANTUM] WriteQuantumDescriptorKey result: %d\n", result);
+    return result;
 }
 
 bool WalletBatch::WriteCryptedQuantumDescriptorKey(const uint256& desc_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& secret)
 {
     CKeyID keyid = pubkey.GetID();
+    LogPrintf("[QUANTUM] WriteCryptedQuantumDescriptorKey: desc_id=%s, keyid=%s, secret_size=%d\n", 
+              desc_id.ToString(), keyid.ToString(), secret.size());
+    
     if (!WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORCQKEY, std::make_pair(desc_id, keyid)), secret, false)) {
+        LogPrintf("[QUANTUM] WriteCryptedQuantumDescriptorKey: WriteIC failed\n");
         return false;
     }
     // Erase the unencrypted key if it was previously stored
     EraseIC(std::make_pair(DBKeys::WALLETDESCRIPTORQKEY, std::make_pair(desc_id, keyid)));
+    LogPrintf("[QUANTUM] WriteCryptedQuantumDescriptorKey: success\n");
     return true;
 }
 
@@ -335,6 +362,16 @@ bool WalletBatch::WriteQuantumKeyMetadata(const CKeyMetadata& meta, const quantu
 {
     CKeyID keyid = pubkey.GetID();
     return WriteIC(std::make_pair(DBKeys::QUANTUM_KEYMETA, keyid), meta, overwrite);
+}
+
+bool WalletBatch::WriteDescriptorScript(const uint256& desc_id, const CScript& script, int32_t index)
+{
+    return WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORSCRIPT, std::make_pair(desc_id, script)), index);
+}
+
+bool WalletBatch::WriteDescriptorWitnessScript(const uint256& desc_id, const uint256& witness_hash, const CScript& witness_script)
+{
+    return WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORWITNESSSCRIPT, std::make_pair(desc_id, witness_hash)), witness_script);
 }
 
 bool WalletBatch::WriteLockedUTXO(const COutPoint& output)
@@ -920,6 +957,7 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
 
         // Get unencrypted keys
         prefix = PrefixStream(DBKeys::WALLETDESCRIPTORKEY, id);
+        LogPrintf("[SEGWIT] Loading unencrypted keys for descriptor %s\n", id.ToString());
         LoadResult key_res = LoadRecords(pwallet, batch, DBKeys::WALLETDESCRIPTORKEY, prefix,
             [&id, &spk_man] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& strErr) {
             uint256 desc_id;
@@ -927,8 +965,11 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
             key >> desc_id;
             assert(desc_id == id);
             key >> pubkey;
+            LogPrintf("[SEGWIT] Loading key: desc_id=%s, pubkey=%s\n", desc_id.ToString(), HexStr(pubkey));
+            
             if (!pubkey.IsValid())
             {
+                LogPrintf("[SEGWIT] Invalid pubkey!\n");
                 strErr = "Error reading wallet database: descriptor unencrypted key CPubKey corrupt";
                 return DBErrors::CORRUPT;
             }
@@ -938,6 +979,7 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
 
             value >> pkey;
             value >> hash;
+            LogPrintf("[SEGWIT] Read privkey size=%d, hash=%s\n", pkey.size(), hash.ToString());
 
             // hash pubkey/privkey to accelerate wallet load
             std::vector<unsigned char> to_hash;
@@ -947,15 +989,18 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
 
             if (Hash(to_hash) != hash)
             {
+                LogPrintf("[SEGWIT] Hash mismatch! Expected=%s, Got=%s\n", hash.ToString(), Hash(to_hash).ToString());
                 strErr = "Error reading wallet database: descriptor unencrypted key CPubKey/CPrivKey corrupt";
                 return DBErrors::CORRUPT;
             }
 
             if (!privkey.Load(pkey, pubkey, true))
             {
+                LogPrintf("[SEGWIT] Failed to load privkey!\n");
                 strErr = "Error reading wallet database: descriptor unencrypted key CPrivKey corrupt";
                 return DBErrors::CORRUPT;
             }
+            LogPrintf("[SEGWIT] Successfully loaded key, adding to SPKM\n");
             spk_man->AddKey(pubkey.GetID(), privkey);
             return DBErrors::LOAD_OK;
         });
@@ -964,6 +1009,7 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
 
         // Get encrypted keys
         prefix = PrefixStream(DBKeys::WALLETDESCRIPTORCKEY, id);
+        LogPrintf("[SEGWIT] Loading encrypted keys for descriptor %s\n", id.ToString());
         LoadResult ckey_res = LoadRecords(pwallet, batch, DBKeys::WALLETDESCRIPTORCKEY, prefix,
             [&id, &spk_man] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& err) {
             uint256 desc_id;
@@ -971,15 +1017,20 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
             key >> desc_id;
             assert(desc_id == id);
             key >> pubkey;
+            LogPrintf("[SEGWIT] Loading encrypted key: desc_id=%s, pubkey=%s\n", desc_id.ToString(), HexStr(pubkey));
+            
             if (!pubkey.IsValid())
             {
+                LogPrintf("[SEGWIT] Invalid encrypted pubkey!\n");
                 err = "Error reading wallet database: descriptor encrypted key CPubKey corrupt";
                 return DBErrors::CORRUPT;
             }
             std::vector<unsigned char> privkey;
             value >> privkey;
+            LogPrintf("[SEGWIT] Read encrypted privkey size=%d\n", privkey.size());
 
             spk_man->AddCryptedKey(pubkey.GetID(), pubkey, privkey);
+            LogPrintf("[SEGWIT] Successfully added encrypted key to SPKM\n");
             return DBErrors::LOAD_OK;
         });
         result = std::max(result, ckey_res.m_result);
@@ -987,47 +1038,55 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
 
         // Get quantum keys
         prefix = PrefixStream(DBKeys::WALLETDESCRIPTORQKEY, id);
-        LogPrintf("Loading quantum keys for descriptor %s\n", id.ToString());
+        LogPrintf("[QUANTUM] Loading quantum keys for descriptor %s\n", id.ToString());
         LoadResult qkey_res = LoadRecords(pwallet, batch, DBKeys::WALLETDESCRIPTORQKEY, prefix,
             [&id, &spk_man] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& strErr) {
-            LogPrintf("Found quantum key record for descriptor %s\n", id.ToString());
+            LogPrintf("[QUANTUM] Found quantum key record for descriptor %s\n", id.ToString());
             uint256 desc_id;
             CKeyID keyid;
             key >> desc_id;
             assert(desc_id == id);
             key >> keyid;
+            LogPrintf("[QUANTUM] Loading quantum key: desc_id=%s, keyid=%s\n", desc_id.ToString(), keyid.ToString());
             
             // Read the pair (key_data, hash)
             std::vector<unsigned char> key_data;
             uint256 hash;
             value >> key_data;
             value >> hash;
+            LogPrintf("[QUANTUM] Read key_data size=%d, hash=%s\n", key_data.size(), hash.ToString());
             
             // Extract type, pubkey, and privkey from key_data
             // Format: [type:1][pubkey_data][privkey_data]
             if (key_data.empty()) {
+                LogPrintf("[QUANTUM] Key data is empty!\n");
                 strErr = "Error reading wallet database: descriptor quantum key data empty";
                 return DBErrors::CORRUPT;
             }
             
             uint8_t key_type_byte = key_data[0];
             auto key_type = static_cast<quantum::KeyType>(key_type_byte);
+            LogPrintf("[QUANTUM] Key type byte: %d, KeyType: %d\n", key_type_byte, (int)key_type);
             
             // Determine pubkey size based on type
             size_t pubkey_size = 0;
             switch (key_type) {
                 case quantum::KeyType::ML_DSA_65:
                     pubkey_size = 1952;  // ML-DSA-65 public key size
+                    LogPrintf("[QUANTUM] Detected ML-DSA-65 key\n");
                     break;
                 case quantum::KeyType::SLH_DSA_192F:
                     pubkey_size = 48;    // SLH-DSA-192f public key size
+                    LogPrintf("[QUANTUM] Detected SLH-DSA-192f key\n");
                     break;
                 default:
+                    LogPrintf("[QUANTUM] Unknown key type: %d\n", key_type_byte);
                     strErr = "Error reading wallet database: unknown quantum key type";
                     return DBErrors::CORRUPT;
             }
             
             if (key_data.size() < 1 + pubkey_size) {
+                LogPrintf("[QUANTUM] Key data too short: %d < %d\n", key_data.size(), 1 + pubkey_size);
                 strErr = "Error reading wallet database: descriptor quantum key data too short";
                 return DBErrors::CORRUPT;
             }
@@ -1035,6 +1094,7 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
             // Extract pubkey and privkey data
             std::vector<unsigned char> pub_data(key_data.begin() + 1, key_data.begin() + 1 + pubkey_size);
             quantum::secure_vector priv_data(key_data.begin() + 1 + pubkey_size, key_data.end());
+            LogPrintf("[QUANTUM] Extracted pubkey size=%d, privkey size=%d\n", pub_data.size(), priv_data.size());
             
             // Verify data integrity
             std::vector<unsigned char> to_hash;
@@ -1043,19 +1103,23 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
             to_hash.insert(to_hash.end(), priv_data.begin(), priv_data.end());
             
             if (Hash(to_hash) != hash) {
+                LogPrintf("[QUANTUM] Hash mismatch! Expected=%s, Got=%s\n", hash.ToString(), Hash(to_hash).ToString());
                 strErr = "Error reading wallet database: descriptor quantum key data corrupt";
                 return DBErrors::CORRUPT;
             }
             
             // Create the public key using constructor
             quantum::CQuantumPubKey pubkey(key_type, pub_data);
+            LogPrintf("[QUANTUM] Created quantum pubkey, valid=%d\n", pubkey.IsValid());
             
             // Create and load the quantum key
             auto qkey = std::make_unique<quantum::CQuantumKey>();
             if (!qkey->Load(priv_data, pubkey)) {
+                LogPrintf("[QUANTUM] Failed to load quantum private key\n");
                 strErr = "Error reading wallet database: descriptor quantum key invalid";
                 return DBErrors::CORRUPT;
             }
+            LogPrintf("[QUANTUM] Successfully loaded quantum key, valid=%d\n", qkey->IsValid());
             
             // Add to SPKM
             spk_man->AddQuantumKey(keyid, std::move(qkey));
@@ -1087,6 +1151,50 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
             return DBErrors::LOAD_OK;
         });
         result = std::max(result, cqkey_res.m_result);
+
+        // Load descriptor scripts (for quantum P2WSH addresses)
+        prefix = PrefixStream(DBKeys::WALLETDESCRIPTORSCRIPT, id);
+        LoadResult script_res = LoadRecords(pwallet, batch, DBKeys::WALLETDESCRIPTORSCRIPT, prefix,
+            [&id, &spk_man] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& strErr) {
+            uint256 desc_id;
+            CScript script;
+            key >> desc_id;
+            assert(desc_id == id);
+            key >> script;
+            
+            int32_t index;
+            value >> index;
+            
+            // Load script to SPKM's tracking (without re-persisting)
+            spk_man->LoadScriptPubKey(script, index);
+            return DBErrors::LOAD_OK;
+        });
+        result = std::max(result, script_res.m_result);
+        if (script_res.m_records > 0) {
+            LogPrintf("Loaded %d scripts for descriptor %s\n", script_res.m_records, id.ToString());
+        }
+        
+        // Load witness scripts
+        prefix = PrefixStream(DBKeys::WALLETDESCRIPTORWITNESSSCRIPT, id);
+        LoadResult witness_res = LoadRecords(pwallet, batch, DBKeys::WALLETDESCRIPTORWITNESSSCRIPT, prefix,
+            [&id, &spk_man] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& strErr) {
+            uint256 desc_id;
+            uint256 witness_hash;
+            key >> desc_id;
+            assert(desc_id == id);
+            key >> witness_hash;
+            
+            CScript witness_script;
+            value >> witness_script;
+            
+            // Load witness script to SPKM's tracking (without re-persisting)
+            spk_man->LoadWitnessScript(witness_script);
+            return DBErrors::LOAD_OK;
+        });
+        result = std::max(result, witness_res.m_result);
+        if (witness_res.m_records > 0) {
+            LogPrintf("Loaded %d witness scripts for descriptor %s\n", witness_res.m_records, id.ToString());
+        }
 
         return result;
     });

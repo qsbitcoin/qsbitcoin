@@ -2478,8 +2478,10 @@ util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, c
 util::Result<CTxDestination> CWallet::GetNewQuantumDestination(const quantum::SignatureSchemeID scheme_id, const std::string label)
 {
     LOCK(cs_wallet);
+    LogPrintf("[QUANTUM] GetNewQuantumDestination called with scheme_id=%d, label=%s\n", (int)scheme_id, label);
     
     if (!IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
+        LogPrintf("[QUANTUM] Error: Not a descriptor wallet\n");
         return util::Error{_("Quantum addresses require descriptor wallets")};
     }
     
@@ -2487,28 +2489,69 @@ util::Result<CTxDestination> CWallet::GetNewQuantumDestination(const quantum::Si
     auto key = std::make_unique<quantum::CQuantumKey>();
     quantum::KeyType key_type = (scheme_id == quantum::SCHEME_ML_DSA_65) ? 
         quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+    LogPrintf("[QUANTUM] Creating new quantum key with type=%d\n", (int)key_type);
     
     key->MakeNewKey(key_type);
     if (!key->IsValid()) {
+        LogPrintf("[QUANTUM] Failed to generate valid quantum key\n");
         return util::Error{_("Failed to generate quantum key")};
     }
+    LogPrintf("[QUANTUM] Successfully generated quantum key\n");
     
     // Get the public key
     quantum::CQuantumPubKey pubkey = key->GetPubKey();
     CKeyID keyid = pubkey.GetID();
+    LogPrintf("[QUANTUM] Got pubkey with keyid=%s\n", keyid.ToString());
     
-    // Add to descriptor SPKM
+    // Find or create quantum descriptor SPKM
     bool added_to_spkm = false;
     DescriptorScriptPubKeyMan* quantum_spkm_used = nullptr;
+    LogPrintf("[QUANTUM] Looking for existing quantum descriptor SPKM\n");
     
+    // First, try to find an existing quantum descriptor for this scheme
     for (auto& spkm : GetAllScriptPubKeyMans()) {
         auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
         if (desc_spkm) {
-            if (desc_spkm->AddQuantumKey(keyid, std::move(key))) {
-                added_to_spkm = true;
-                quantum_spkm_used = desc_spkm;
-                break;
+            // Check if this is a quantum descriptor by checking if it has quantum keys
+            if (desc_spkm->GetQuantumKeyCount() > 0) {
+                LogPrintf("[QUANTUM] Found existing quantum descriptor with %d keys\n", desc_spkm->GetQuantumKeyCount());
+                // This is a quantum descriptor, use it
+                if (desc_spkm->AddQuantumKey(keyid, std::move(key))) {
+                    LogPrintf("[QUANTUM] Successfully added key to existing quantum descriptor\n");
+                    added_to_spkm = true;
+                    quantum_spkm_used = desc_spkm;
+                    break;
+                } else {
+                    LogPrintf("[QUANTUM] Failed to add key to existing quantum descriptor\n");
+                }
             }
+        }
+    }
+    
+    // If no quantum descriptor found, create one
+    if (!added_to_spkm) {
+        LogPrintf("[QUANTUM] No existing quantum descriptor found, creating new one\n");
+        WalletBatch batch(GetDatabase());
+        if (SetupQuantumDescriptor(*this, batch, scheme_id, false /* not internal */)) {
+            LogPrintf("[QUANTUM] Successfully created new quantum descriptor\n");
+            // Try again to find the newly created quantum descriptor
+            for (auto& spkm : GetAllScriptPubKeyMans()) {
+                auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
+                if (desc_spkm && desc_spkm->GetQuantumKeyCount() > 0) {
+                    LogPrintf("[QUANTUM] Found newly created quantum descriptor\n");
+                    // Move the key since it was already moved above
+                    auto new_key = std::make_unique<quantum::CQuantumKey>();
+                    new_key->MakeNewKey(key_type);
+                    if (desc_spkm->AddQuantumKey(keyid, std::move(new_key))) {
+                        LogPrintf("[QUANTUM] Added key to newly created quantum descriptor\n");
+                        added_to_spkm = true;
+                        quantum_spkm_used = desc_spkm;
+                        break;
+                    }
+                }
+            }
+        } else {
+            LogPrintf("[QUANTUM] Failed to create quantum descriptor\n");
         }
     }
     
@@ -2519,24 +2562,36 @@ util::Result<CTxDestination> CWallet::GetNewQuantumDestination(const quantum::Si
     // Create the witness script and P2WSH address
     CScript witnessScript = quantum::CreateQuantumWitnessScript(pubkey);
     CScript scriptPubKey = quantum::CreateQuantumP2WSH(pubkey);
+    LogPrintf("[QUANTUM] Created witness script: %s\n", HexStr(witnessScript));
+    LogPrintf("[QUANTUM] Created scriptPubKey: %s\n", HexStr(scriptPubKey));
     
     // Extract the witness script hash to create a destination
     std::vector<unsigned char> witnessprogram;
     int witnessversion;
     if (!scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) || 
         witnessversion != 0 || witnessprogram.size() != 32) {
+        LogPrintf("[QUANTUM] Failed to create valid P2WSH script: version=%d, program_size=%d\n", 
+                  witnessversion, witnessprogram.size());
         return util::Error{_("Failed to create valid P2WSH script")};
     }
     
     CTxDestination dest = WitnessV0ScriptHash(uint256(witnessprogram));
+    LogPrintf("[QUANTUM] Created destination: %s\n", EncodeDestination(dest));
     
-    // Add the script so it's recognized as "mine"
+    // Add the scripts so they're recognized as "mine" and solvable
     if (quantum_spkm_used) {
         quantum_spkm_used->AddScriptPubKey(scriptPubKey);
+        LogPrintf("[QUANTUM] Added scriptPubKey to SPKM\n");
+        
+        // CRITICAL: Store the witness script so it can be found during signing
+        // Without this, the address will show as "solvable: false" and spending will fail
+        quantum_spkm_used->AddWitnessScript(witnessScript);
+        LogPrintf("[QUANTUM] Added witness script to SPKM\n");
     }
     
     // Add to address book
     SetAddressBook(dest, label, AddressPurpose::RECEIVE);
+    LogPrintf("[QUANTUM] Added to address book with label: %s\n", label);
     
     return dest;
 }

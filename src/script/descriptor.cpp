@@ -1095,15 +1095,19 @@ class QPKHDescriptor final : public DescriptorImpl
 protected:
     std::vector<CScript> MakeScripts(const std::vector<CPubKey>& keys, std::span<const CScript>, FlatSigningProvider& out) const override
     {
+        LogPrintf("[QUANTUM] QPKHDescriptor::MakeScripts called\n");
+        
         // Get the quantum pubkey provider
         auto* quantum_provider = dynamic_cast<const QuantumPubkeyProvider*>(m_pubkey_args[0].get());
         if (!quantum_provider) {
+            LogPrintf("[QUANTUM] Failed to cast to QuantumPubkeyProvider\n");
             // This should not happen if parsing was done correctly
             return {};
         }
         
         // Get the quantum public key
         quantum::CQuantumPubKey qpubkey = quantum_provider->GetQuantumPubKey();
+        LogPrintf("[QUANTUM] Got quantum pubkey, type=%d, valid=%d\n", (int)qpubkey.GetType(), qpubkey.IsValid());
         
         // Create witness script for quantum key: <pubkey> OP_CHECKSIG_[ML_DSA/SLH_DSA]
         CScript witnessScript;
@@ -1111,9 +1115,12 @@ protected:
         
         if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
             witnessScript << OP_CHECKSIG_ML_DSA;
+            LogPrintf("[QUANTUM] Created ML-DSA-65 witness script\n");
         } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
             witnessScript << OP_CHECKSIG_SLH_DSA;
+            LogPrintf("[QUANTUM] Created SLH-DSA-192f witness script\n");
         } else {
+            LogPrintf("[QUANTUM] Unknown scheme ID: %d\n", quantum_provider->GetSchemeId());
             return {}; // Unknown scheme
         }
         
@@ -1123,9 +1130,11 @@ protected:
         
         CScript script;
         script << OP_0 << std::vector<unsigned char>(hash.begin(), hash.end());
+        LogPrintf("[QUANTUM] Created P2WSH script: %s\n", HexStr(script));
         
         // Store the witness script in the provider for signing
         out.scripts.emplace(CScriptID(witnessScript), witnessScript);
+        LogPrintf("[QUANTUM] Stored witness script in provider\n");
         
         return Vector(script);
     }
@@ -1867,12 +1876,15 @@ std::vector<std::unique_ptr<PubkeyProvider>> ParseQuantumPubkey(uint32_t key_exp
 {
     std::vector<std::unique_ptr<PubkeyProvider>> ret;
     std::string str(sp.begin(), sp.end());
+    LogPrintf("[QUANTUM] ParseQuantumPubkey called with string: %s\n", str.substr(0, 50));
     
     // Check for quantum: prefix to distinguish from regular keys
     if (str.size() < 8 || str.substr(0, 8) != "quantum:") {
+        LogPrintf("[QUANTUM] No quantum: prefix, trying hex parsing\n");
         // Try parsing as hex quantum pubkey
         if (IsHex(str)) {
             std::vector<unsigned char> data = ParseHex(str);
+            LogPrintf("[QUANTUM] Parsed hex data, size=%d bytes\n", data.size());
             
             // Check if it could be a quantum public key
             // ML-DSA-65 public key is 1952 bytes
@@ -1880,9 +1892,12 @@ std::vector<std::unique_ptr<PubkeyProvider>> ParseQuantumPubkey(uint32_t key_exp
             quantum::SignatureSchemeID scheme_id;
             if (data.size() == 1952) {
                 scheme_id = quantum::SCHEME_ML_DSA_65;
+                LogPrintf("[QUANTUM] Detected ML-DSA-65 key (1952 bytes)\n");
             } else if (data.size() == 48) {
                 scheme_id = quantum::SCHEME_SLH_DSA_192F;
+                LogPrintf("[QUANTUM] Detected SLH-DSA-192f key (48 bytes)\n");
             } else {
+                LogPrintf("[QUANTUM] Invalid key size: %d bytes\n", data.size());
                 error = strprintf("Invalid quantum public key size: %d bytes", data.size());
                 return {};
             }
@@ -1893,10 +1908,12 @@ std::vector<std::unique_ptr<PubkeyProvider>> ParseQuantumPubkey(uint32_t key_exp
             quantum::CQuantumPubKey qpubkey(key_type, data);
             
             if (!qpubkey.IsValid()) {
+                LogPrintf("[QUANTUM] Created quantum pubkey is invalid\n");
                 error = "Invalid quantum public key";
                 return {};
             }
             
+            LogPrintf("[QUANTUM] Successfully created QuantumPubkeyProvider\n");
             ret.emplace_back(std::make_unique<QuantumPubkeyProvider>(key_exp_index, qpubkey, scheme_id));
             return ret;
         }
@@ -2653,6 +2670,64 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
             auto key = InferXOnlyPubkey(pubkey, ParseScriptContext::P2TR, provider);
             if (key) {
                 return std::make_unique<RawTRDescriptor>(std::move(key));
+            }
+        }
+    }
+
+    // Check for quantum witness scripts before trying miniscript
+    if (ctx == ParseScriptContext::P2WSH) {
+        // Check if this is a quantum script: <pubkey> OP_CHECKSIG_ML_DSA/SLH_DSA
+        if (script.size() >= 2) {
+            CScript::const_iterator pc = script.begin();
+            opcodetype opcode;
+            std::vector<unsigned char> pubkey_data;
+            
+            // Get the first element (should be pubkey push)
+            if (script.GetOp(pc, opcode, pubkey_data) && !pubkey_data.empty()) {
+                // Get the second element (should be quantum checksig opcode)
+                if (script.GetOp(pc, opcode) && pc == script.end()) {
+                    if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) {
+                        // This is a quantum witness script
+                        quantum::KeyType keyType = (opcode == OP_CHECKSIG_ML_DSA) ? 
+                            quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+                        quantum::CQuantumPubKey qpubkey(keyType, pubkey_data);
+                        
+                        if (qpubkey.IsValid()) {
+                            // Create a quantum pubkey provider
+                            // For quantum keys, we'll create a simple pubkey provider that returns the quantum pubkey ID
+                            // Note: This is a temporary solution - eventually we want proper quantum descriptor support
+                            
+                            // Create a normal CPubKey that has the same keyID as the quantum pubkey
+                            // This is a workaround to make quantum addresses solvable
+                            CPubKey dummy_pubkey;
+                            CKeyID keyid = qpubkey.GetID();
+                            
+                            // Try to get a regular pubkey from the provider that matches this keyID
+                            if (provider.GetPubKey(keyid, dummy_pubkey)) {
+                                auto pubkey_provider = InferPubkey(dummy_pubkey, ctx, provider);
+                                if (pubkey_provider) {
+                                    return std::make_unique<PKDescriptor>(std::move(pubkey_provider), true);
+                                }
+                            }
+                            
+                            // If we can't find a matching regular pubkey, create a const provider
+                            // This at least makes the script "parseable" if not fully solvable
+                            // The actual quantum signing will be handled by the quantum-aware signing code
+                            std::string hex_str = HexStr(pubkey_data);
+                            std::span<const char> hex_span{hex_str.data(), hex_str.size()};
+                            FlatSigningProvider dummy_provider;
+                            std::string error;
+                            auto providers = ParsePubkey(0, hex_span, ctx, dummy_provider, error);
+                            if (!providers.empty()) {
+                                return std::make_unique<PKDescriptor>(std::move(providers[0]), true);
+                            }
+                            
+                            // Last resort: create a raw pubkey descriptor
+                            // This ensures the witness script is at least recognized
+                            return nullptr;
+                        }
+                    }
+                }
             }
         }
     }

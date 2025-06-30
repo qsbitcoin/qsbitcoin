@@ -826,8 +826,12 @@ bool LegacyDataSPKM::DeleteRecordsWithDB(WalletBatch& batch)
 
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const OutputType type)
 {
+    LogPrintf("[SEGWIT] GetNewDestination called for type=%d\n", (int)type);
+    LogPrintf("[SEGWIT] Descriptor: %s\n", m_wallet_descriptor.descriptor->ToString());
+    
     // Returns true if this descriptor supports getting new addresses. Conditions where we may be unable to fetch them (e.g. locked) are caught later
     if (!CanGetAddresses()) {
+        LogPrintf("[SEGWIT] Cannot get addresses\n");
         return util::Error{_("No addresses available")};
     }
     {
@@ -835,6 +839,7 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         assert(m_wallet_descriptor.descriptor->IsSingleType()); // This is a combo descriptor which should not be an active descriptor
         std::optional<OutputType> desc_addr_type = m_wallet_descriptor.descriptor->GetOutputType();
         assert(desc_addr_type);
+        LogPrintf("[SEGWIT] Descriptor output type: %d\n", (int)*desc_addr_type);
         if (type != *desc_addr_type) {
             throw std::runtime_error(std::string(__func__) + ": Types are inconsistent. Stored type does not match type of newly generated address");
         }
@@ -844,19 +849,27 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         // Get the scriptPubKey from the descriptor
         FlatSigningProvider out_keys;
         std::vector<CScript> scripts_temp;
+        LogPrintf("[SEGWIT] Next index: %d, range_end: %d, max_cached: %d\n", 
+                  m_wallet_descriptor.next_index, m_wallet_descriptor.range_end, m_max_cached_index);
         if (m_wallet_descriptor.range_end <= m_max_cached_index && !TopUp(1)) {
             // We can't generate anymore keys
+            LogPrintf("[SEGWIT] Keypool ran out!\n");
             return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
         }
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(m_wallet_descriptor.next_index, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
             // We can't generate anymore keys
+            LogPrintf("[SEGWIT] Failed to expand from cache!\n");
             return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
         }
+        LogPrintf("[SEGWIT] Expanded %d scripts, script[0]=%s\n", scripts_temp.size(), HexStr(scripts_temp[0]));
+        LogPrintf("[SEGWIT] out_keys has %d keys, %d pubkeys\n", out_keys.keys.size(), out_keys.pubkeys.size());
 
         CTxDestination dest;
         if (!ExtractDestination(scripts_temp[0], dest)) {
+            LogPrintf("[SEGWIT] Failed to extract destination from script\n");
             return util::Error{_("Error: Cannot extract destination from the generated scriptpubkey")}; // shouldn't happen
         }
+        LogPrintf("[SEGWIT] Generated address: %s\n", EncodeDestination(dest));
         m_wallet_descriptor.next_index++;
         WalletBatch(m_storage.GetDatabase()).WriteDescriptor(GetID(), m_wallet_descriptor);
         return dest;
@@ -978,19 +991,27 @@ void DescriptorScriptPubKeyMan::ReturnDestination(int64_t index, bool internal, 
 std::map<CKeyID, CKey> DescriptorScriptPubKeyMan::GetKeys() const
 {
     AssertLockHeld(cs_desc_man);
+    LogPrintf("[SEGWIT] GetKeys called, encrypted=%d, locked=%d\n", 
+              m_storage.HasEncryptionKeys(), m_storage.IsLocked());
+    
     if (m_storage.HasEncryptionKeys() && !m_storage.IsLocked()) {
         KeyMap keys;
+        LogPrintf("[SEGWIT] Decrypting %d encrypted keys\n", m_map_crypted_keys.size());
         for (const auto& key_pair : m_map_crypted_keys) {
             const CPubKey& pubkey = key_pair.second.first;
             const std::vector<unsigned char>& crypted_secret = key_pair.second.second;
             CKey key;
-            m_storage.WithEncryptionKey([&](const CKeyingMaterial& encryption_key) {
+            bool decrypt_result = m_storage.WithEncryptionKey([&](const CKeyingMaterial& encryption_key) {
                 return DecryptKey(encryption_key, crypted_secret, pubkey, key);
             });
+            LogPrintf("[SEGWIT] Decrypted key for pubkey %s: success=%d\n", 
+                      HexStr(pubkey), decrypt_result);
             keys[pubkey.GetID()] = key;
         }
+        LogPrintf("[SEGWIT] Returning %d decrypted keys\n", keys.size());
         return keys;
     }
+    LogPrintf("[SEGWIT] Returning %d unencrypted keys\n", m_map_keys.size());
     return m_map_keys;
 }
 
@@ -1036,6 +1057,7 @@ bool DescriptorScriptPubKeyMan::TopUp(unsigned int size)
 bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int size)
 {
     LOCK(cs_desc_man);
+    LogPrintf("[SEGWIT] TopUpWithDB called with size=%d\n", size);
     std::set<CScript> new_spks;
     unsigned int target_size;
     if (size > 0) {
@@ -1046,9 +1068,12 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
 
     // Calculate the new range_end
     int32_t new_range_end = std::max(m_wallet_descriptor.next_index + (int32_t)target_size, m_wallet_descriptor.range_end);
+    LogPrintf("[SEGWIT] TopUp: current range [%d-%d], new_range_end=%d\n", 
+              m_wallet_descriptor.range_start, m_wallet_descriptor.range_end, new_range_end);
 
     // If the descriptor is not ranged, we actually just want to fill the first cache item
     if (!m_wallet_descriptor.descriptor->IsRange()) {
+        LogPrintf("[SEGWIT] TopUp: Descriptor is not ranged\n");
         new_range_end = 1;
         m_wallet_descriptor.range_end = 1;
         m_wallet_descriptor.range_start = 0;
@@ -1056,16 +1081,23 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
 
     FlatSigningProvider provider;
     provider.keys = GetKeys();
+    LogPrintf("[SEGWIT] TopUp: Got %d keys from provider\n", provider.keys.size());
 
     uint256 id = GetID();
     for (int32_t i = m_max_cached_index + 1; i < new_range_end; ++i) {
+        LogPrintf("[SEGWIT] TopUp: Generating for index %d\n", i);
         FlatSigningProvider out_keys;
         std::vector<CScript> scripts_temp;
         DescriptorCache temp_cache;
         // Maybe we have a cached xpub and we can expand from the cache first
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(i, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
-            if (!m_wallet_descriptor.descriptor->Expand(i, provider, scripts_temp, out_keys, &temp_cache)) return false;
+            LogPrintf("[SEGWIT] TopUp: ExpandFromCache failed, trying Expand\n");
+            if (!m_wallet_descriptor.descriptor->Expand(i, provider, scripts_temp, out_keys, &temp_cache)) {
+                LogPrintf("[SEGWIT] TopUp: Expand failed for index %d\n", i);
+                return false;
+            }
         }
+        LogPrintf("[SEGWIT] TopUp: Generated %d scripts for index %d\n", scripts_temp.size(), i);
         // Add all of the scriptPubKeys to the scriptPubKey set
         new_spks.insert(scripts_temp.begin(), scripts_temp.end());
         for (const CScript& script : scripts_temp) {
@@ -1197,19 +1229,25 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(WalletBatch& batch, co
 bool DescriptorScriptPubKeyMan::SetupQuantumDescriptor(WalletBatch& batch, const WalletDescriptor& desc)
 {
     LOCK(cs_desc_man);
+    LogPrintf("[QUANTUM] SetupQuantumDescriptor called\n");
     assert(m_storage.IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS));
 
     // Ignore when there is already a descriptor
     if (m_wallet_descriptor.descriptor) {
+        LogPrintf("[QUANTUM] Descriptor already exists, returning false\n");
         return false;
     }
 
     m_wallet_descriptor = desc;
+    LogPrintf("[QUANTUM] Set wallet descriptor: %s\n", m_wallet_descriptor.descriptor->ToString());
 
     // Write descriptor to database
+    LogPrintf("[QUANTUM] Writing descriptor to database with ID=%s\n", GetID().ToString());
     if (!batch.WriteDescriptor(GetID(), m_wallet_descriptor)) {
+        LogPrintf("[QUANTUM] Failed to write quantum descriptor to database\n");
         throw std::runtime_error(std::string(__func__) + ": writing quantum descriptor failed");
     }
+    LogPrintf("[QUANTUM] Successfully wrote quantum descriptor to database\n");
 
     // For quantum descriptors, we don't do HD key generation (TopUp)
     // The quantum keys are added separately via AddQuantumKey
@@ -1218,6 +1256,7 @@ bool DescriptorScriptPubKeyMan::SetupQuantumDescriptor(WalletBatch& batch, const
     // Just mark that we have a descriptor for now
 
     m_storage.UnsetBlankWalletFlag(batch);
+    LogPrintf("[QUANTUM] SetupQuantumDescriptor completed successfully\n");
     return true;
 }
 
@@ -1264,18 +1303,26 @@ int64_t DescriptorScriptPubKeyMan::GetTimeFirstKey() const
 std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvider(const CScript& script, bool include_private) const
 {
     LOCK(cs_desc_man);
+    
+    LogPrintf("[SEGWIT] GetSigningProvider for script %s (include_private=%d)\n", 
+              HexStr(script), include_private);
 
     // Find the index of the script
     auto it = m_map_script_pub_keys.find(script);
     if (it == m_map_script_pub_keys.end()) {
+        LogPrintf("[SEGWIT] Script not found in m_map_script_pub_keys\n");
         return nullptr;
     }
     int32_t index = it->second;
+    LogPrintf("[SEGWIT] Found script at index %d\n", index);
 
     auto provider = GetSigningProvider(index, include_private);
     if (provider) {
+        LogPrintf("[SEGWIT] Got signing provider with %d keys\n", provider->keys.size());
         // Populate quantum keys for this script if needed
         PopulateQuantumSigningProvider(script, *provider, include_private, this);
+    } else {
+        LogPrintf("[SEGWIT] Failed to get signing provider for index %d\n", index);
     }
     return provider;
 }
@@ -1302,24 +1349,26 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
 std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvider(int32_t index, bool include_private) const
 {
     AssertLockHeld(cs_desc_man);
+    
+    LogPrintf("[SEGWIT] GetSigningProvider for index %d (include_private=%d)\n", index, include_private);
 
     std::unique_ptr<FlatSigningProvider> out_keys = std::make_unique<FlatSigningProvider>();
 
     // Handle negative quantum indices specially
     if (index < 0) {
+        LogPrintf("[SEGWIT] Handling quantum index %d\n", index);
         // This is a quantum address index - provide quantum keys and scripts
-        // Add all quantum public keys
-        for (const auto& [key_id, pubkey] : m_map_quantum_pubkeys) {
-            out_keys->pubkeys[key_id] = CPubKey{}; // Placeholder for quantum pubkeys
-        }
         
-        // Add quantum private keys if requested and available
-        if (include_private && HavePrivateKeys()) {
-            for (const auto& [key_id, quantum_key] : m_map_quantum_keys) {
-                // Store quantum keys in a way that PopulateQuantumSigningProvider can find them
-                out_keys->pubkeys[key_id] = CPubKey{}; // Placeholder
-            }
+        // CRITICAL: Add witness scripts for quantum addresses
+        // The signing process needs access to the witness script to create the witness stack
+        for (const auto& [hash, script] : m_map_witness_scripts) {
+            LogPrintf("[SEGWIT] Adding witness script to provider: hash=%s\n", hash.ToString());
+            out_keys->scripts[CScriptID(script)] = script;
         }
+        LogPrintf("[SEGWIT] Added %d witness scripts to quantum signing provider\n", m_map_witness_scripts.size());
+        
+        // Note: The actual quantum keys will be populated by PopulateQuantumSigningProvider
+        // when it parses the witness script and retrieves keys from this SPKM
         
         // Cache the provider for quantum indices too
         m_map_signing_providers[index] = *out_keys;
@@ -1330,20 +1379,29 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     // Fetch SigningProvider from cache to avoid re-deriving
     auto it = m_map_signing_providers.find(index);
     if (it != m_map_signing_providers.end()) {
+        LogPrintf("[SEGWIT] Found cached signing provider for index %d\n", index);
         out_keys->Merge(FlatSigningProvider{it->second});
     } else {
+        LogPrintf("[SEGWIT] Expanding from cache for index %d\n", index);
         // Get the scripts, keys, and key origins for this script
         std::vector<CScript> scripts_temp;
-        if (!m_wallet_descriptor.descriptor->ExpandFromCache(index, m_wallet_descriptor.cache, scripts_temp, *out_keys)) return nullptr;
+        if (!m_wallet_descriptor.descriptor->ExpandFromCache(index, m_wallet_descriptor.cache, scripts_temp, *out_keys)) {
+            LogPrintf("[SEGWIT] Failed to expand from cache for index %d\n", index);
+            return nullptr;
+        }
+        LogPrintf("[SEGWIT] Expanded %d scripts, %d pubkeys from cache\n", scripts_temp.size(), out_keys->pubkeys.size());
 
         // Cache SigningProvider so we don't need to re-derive if we need this SigningProvider again
         m_map_signing_providers[index] = *out_keys;
     }
 
     if (HavePrivateKeys() && include_private) {
+        LogPrintf("[SEGWIT] Getting private keys for index %d\n", index);
         FlatSigningProvider master_provider;
         master_provider.keys = GetKeys();
+        LogPrintf("[SEGWIT] Got %d master keys, expanding private keys\n", master_provider.keys.size());
         m_wallet_descriptor.descriptor->ExpandPrivate(index, master_provider, *out_keys);
+        LogPrintf("[SEGWIT] After ExpandPrivate: %d keys in provider\n", out_keys->keys.size());
     }
 
     return out_keys;
@@ -1613,40 +1671,53 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
 bool DescriptorScriptPubKeyMan::AddKey(const CKeyID& key_id, const CKey& key)
 {
     LOCK(cs_desc_man);
+    LogPrintf("[SEGWIT] AddKey: Adding key with id=%s, valid=%d\n", key_id.ToString(), key.IsValid());
     m_map_keys[key_id] = key;
+    LogPrintf("[SEGWIT] AddKey: Total keys in map: %d\n", m_map_keys.size());
     return true;
 }
 
 bool DescriptorScriptPubKeyMan::AddCryptedKey(const CKeyID& key_id, const CPubKey& pubkey, const std::vector<unsigned char>& crypted_key)
 {
     LOCK(cs_desc_man);
+    LogPrintf("[SEGWIT] AddCryptedKey: Adding encrypted key with id=%s, pubkey=%s\n", 
+              key_id.ToString(), HexStr(pubkey));
     if (!m_map_keys.empty()) {
+        LogPrintf("[SEGWIT] AddCryptedKey: Cannot add encrypted key when unencrypted keys exist\n");
         return false;
     }
 
     m_map_crypted_keys[key_id] = make_pair(pubkey, crypted_key);
+    LogPrintf("[SEGWIT] AddCryptedKey: Total encrypted keys: %d\n", m_map_crypted_keys.size());
     return true;
 }
 
 bool DescriptorScriptPubKeyMan::AddQuantumKey(const CKeyID& key_id, std::unique_ptr<quantum::CQuantumKey> key)
 {
     LOCK(cs_desc_man);
+    LogPrintf("[QUANTUM] AddQuantumKey called for key_id=%s\n", key_id.ToString());
+    
     if (!key || !key->IsValid()) {
+        LogPrintf("[QUANTUM] AddQuantumKey: Invalid key provided\n");
         return false;
     }
     
     // Store the public key as well
     quantum::CQuantumPubKey pubkey = key->GetPubKey();
+    LogPrintf("[QUANTUM] AddQuantumKey: Got pubkey, type=%d\n", (int)pubkey.GetType());
     m_map_quantum_pubkeys[key_id] = pubkey;
+    LogPrintf("[QUANTUM] AddQuantumKey: Stored pubkey, total quantum pubkeys=%d\n", m_map_quantum_pubkeys.size());
     
     // Store the private key
     m_map_quantum_keys[key_id] = std::move(key);
+    LogPrintf("[QUANTUM] AddQuantumKey: Stored private key, total quantum keys=%d\n", m_map_quantum_keys.size());
     
     // Persist to database
     WalletBatch batch(m_storage.GetDatabase());
+    LogPrintf("[QUANTUM] AddQuantumKey: Writing to database, desc_id=%s\n", m_wallet_descriptor.id.ToString());
     bool result = batch.WriteQuantumDescriptorKey(m_wallet_descriptor.id, pubkey, *m_map_quantum_keys[key_id]);
     if (result) {
-        LogPrintf("Successfully wrote quantum key %s to descriptor %s\n", key_id.ToString(), m_wallet_descriptor.id.ToString());
+        LogPrintf("[QUANTUM] Successfully wrote quantum key %s to descriptor %s\n", key_id.ToString(), m_wallet_descriptor.id.ToString());
     } else {
         LogPrintf("Failed to write quantum key %s to descriptor %s\n", key_id.ToString(), m_wallet_descriptor.id.ToString());
     }
@@ -1659,13 +1730,99 @@ void DescriptorScriptPubKeyMan::AddScriptPubKey(const CScript& script)
     // Add script to tracking with a special index for quantum addresses
     // Use negative indices for quantum addresses to avoid conflicts
     static int32_t quantum_index = -1;
-    m_map_script_pub_keys[script] = quantum_index--;
-    LogPrintf("Added quantum script to tracking: %s with index %d\n", HexStr(script), quantum_index + 1);
+    int32_t index = quantum_index--;
+    m_map_script_pub_keys[script] = index;
+    LogPrintf("Added quantum script to tracking: %s with index %d\n", HexStr(script), index);
+    
+    // Persist the script to database
+    WalletBatch batch(m_storage.GetDatabase());
+    if (!batch.WriteDescriptorScript(m_wallet_descriptor.id, script, index)) {
+        LogPrintf("Failed to persist quantum script to database\n");
+    }
     
     // Notify the wallet to update its cache
     std::set<CScript> new_spks;
     new_spks.insert(script);
     m_storage.TopUpCallback(new_spks, this);
+}
+
+void DescriptorScriptPubKeyMan::AddWitnessScript(const CScript& witness_script)
+{
+    LOCK(cs_desc_man);
+    // Calculate SHA256 hash of the witness script
+    uint256 witness_hash;
+    CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(witness_hash.begin());
+    
+    // Store the witness script indexed by its hash
+    m_map_witness_scripts[witness_hash] = witness_script;
+    
+    LogPrintf("Added witness script to tracking: hash=%s, script=%s\n", 
+              witness_hash.ToString(), HexStr(witness_script));
+    
+    // Persist the witness script to database
+    WalletBatch batch(m_storage.GetDatabase());
+    if (!batch.WriteDescriptorWitnessScript(m_wallet_descriptor.id, witness_hash, witness_script)) {
+        LogPrintf("Failed to persist witness script to database\n");
+    }
+    
+    // Also add it to the signing provider with CScriptID key for backward compatibility
+    // This allows GetCScript to find it during signing
+    CScriptID scriptid(witness_script);
+}
+
+bool DescriptorScriptPubKeyMan::GetWitnessScript(const uint256& witness_hash, CScript& script) const
+{
+    LOCK(cs_desc_man);
+    auto it = m_map_witness_scripts.find(witness_hash);
+    if (it != m_map_witness_scripts.end()) {
+        script = it->second;
+        return true;
+    }
+    return false;
+}
+
+bool DescriptorScriptPubKeyMan::GetCScript(const CScriptID& scriptid, CScript& script) const
+{
+    LOCK(cs_desc_man);
+    // First check if this is a witness script stored by its SHA256 hash
+    // For each witness script we have, check if its CScriptID matches
+    for (const auto& [witness_hash, witness_script] : m_map_witness_scripts) {
+        if (CScriptID(witness_script) == scriptid) {
+            script = witness_script;
+            return true;
+        }
+    }
+    
+    // If not found in witness scripts, check the descriptor's expanded scripts
+    // This happens during descriptor expansion when scripts are added to the FlatSigningProvider
+    // The descriptor wallet doesn't use a traditional script storage like legacy wallets
+    
+    return false;
+}
+
+void DescriptorScriptPubKeyMan::LoadScriptPubKey(const CScript& script, int32_t index)
+{
+    LOCK(cs_desc_man);
+    // Add script to tracking without persisting (used during wallet load)
+    m_map_script_pub_keys[script] = index;
+    LogPrintf("[QUANTUM] LoadScriptPubKey: Loaded script %s with index %d\n", HexStr(script), index);
+    
+    // Notify the wallet to update its cache
+    std::set<CScript> new_spks;
+    new_spks.insert(script);
+    m_storage.TopUpCallback(new_spks, this);
+}
+
+void DescriptorScriptPubKeyMan::LoadWitnessScript(const CScript& witness_script)
+{
+    LOCK(cs_desc_man);
+    // Calculate SHA256 hash of the witness script
+    uint256 witness_hash;
+    CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(witness_hash.begin());
+    
+    // Store the witness script indexed by its hash (without persisting)
+    m_map_witness_scripts[witness_hash] = witness_script;
+    LogPrintf("[QUANTUM] LoadWitnessScript: Loaded witness script with hash=%s\n", witness_hash.ToString());
 }
 
 bool DescriptorScriptPubKeyMan::AddCryptedQuantumKey(const CKeyID& key_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& crypted_key)

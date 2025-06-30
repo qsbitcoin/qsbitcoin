@@ -484,9 +484,11 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
                         return false;
                     }
                     
-                    // For witness, push signature and pubkey as separate elements
+                    // For P2WSH witness scripts, only push the signature
+                    // The pubkey is already embedded in the witness script itself
+                    LogPrintf("DEBUG: Quantum witness - pushing sig size=%d\n", sig.size());
                     ret.push_back(std::move(sig));
-                    ret.push_back(vchPubKey);
+                    LogPrintf("DEBUG: Quantum witness - ret now has %d elements\n", ret.size());
                     return true;
                 }
             }
@@ -624,7 +626,9 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         sigdata.witness_script = witnessscript;
 
         TxoutType subType{TxoutType::NONSTANDARD};
+        LogPrintf("DEBUG: ProduceSignature - calling SignStep for witness script\n");
         solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata) && subType != TxoutType::SCRIPTHASH && subType != TxoutType::WITNESS_V0_SCRIPTHASH && subType != TxoutType::WITNESS_V0_KEYHASH;
+        LogPrintf("DEBUG: ProduceSignature - SignStep returned, solved=%d, result size=%d\n", solved, result.size());
 
         // If we couldn't find a solution with the legacy satisfier, try satisfying the script using Miniscript.
         // Note we need to check if the result stack is empty before, because it might be used even if the Script
@@ -635,8 +639,10 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
             const auto ms = miniscript::FromScript(witnessscript, ms_satisfier);
             solved = ms && ms->Satisfy(ms_satisfier, result) == miniscript::Availability::YES;
         }
+        LogPrintf("DEBUG: ProduceSignature - adding witness script to result, size=%d\n", witnessscript.size());
         result.emplace_back(witnessscript.begin(), witnessscript.end());
 
+        LogPrintf("DEBUG: ProduceSignature - final result has %d elements before assigning to scriptWitness\n", result.size());
         sigdata.scriptWitness.stack = result;
         sigdata.witness = true;
         result.clear();
@@ -657,6 +663,7 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
     sigdata.scriptSig = PushAll(result);
 
     // Test solution
+    static_assert((STANDARD_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_QUANTUM_SIGS) != 0, "SCRIPT_VERIFY_QUANTUM_SIGS must be in STANDARD_SCRIPT_VERIFY_FLAGS");
     sigdata.complete = solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, creator.Checker());
     return sigdata.complete;
 }
@@ -689,7 +696,7 @@ struct Stacks
     Stacks() = delete;
     Stacks(const Stacks&) = delete;
     explicit Stacks(const SignatureData& data) : witness(data.scriptWitness.stack) {
-        EvalScript(script, data.scriptSig, SCRIPT_VERIFY_STRICTENC, BaseSignatureChecker(), SigVersion::BASE);
+        EvalScript(script, data.scriptSig, STANDARD_SCRIPT_VERIFY_FLAGS, BaseSignatureChecker(), SigVersion::BASE);
     }
 };
 }

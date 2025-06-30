@@ -73,7 +73,7 @@ witness: [signature][pubkey]
 
 ## Current Issues & Next Steps
 
-### Recently Completed (June 27-28, 2025)
+### Recently Completed (June 27-29, 2025)
 1. ✅ **Quantum Descriptors**: Full `qpkh()` descriptor implementation
 2. ✅ **SPKM Integration**: DescriptorScriptPubKeyMan supports quantum signing
 3. ✅ **P2WSH Addresses**: All quantum addresses use standard bech32 format
@@ -85,6 +85,14 @@ witness: [signature][pubkey]
 9. ✅ **Global Keystore Removal** (June 28, 2025): Eliminated g_quantum_keystore completely
 10. ✅ **Unified RPC Approach** (June 28, 2025): Extended getnewaddress/getrawchangeaddress with algorithm parameter
 11. ✅ **Quantum Signature Format** (June 28, 2025): Fixed verification by embedding public keys in signatures
+12. ✅ **Quantum Signature Soft Fork** (June 29, 2025): Implemented push size limit bypass for quantum signatures
+    - Modified `VerifyWitnessProgram()`, `EvalScript()`, and `ExecuteWitnessScript()` in interpreter.cpp to allow quantum-sized elements
+    - Added SCRIPT_VERIFY_QUANTUM_SIGS flag (bit 21) to STANDARD_SCRIPT_VERIFY_FLAGS in policy.h
+    - Fixed SignStep() in sign.cpp to only return signature for quantum witness scripts (pubkey is in witness script)
+    - Fixed Stacks constructor in sign.cpp to use STANDARD_SCRIPT_VERIFY_FLAGS with quantum flag
+    - Quantum signatures (3.3KB ML-DSA, 35KB SLH-DSA) now bypass Bitcoin's 520-byte push limit
+    - Successfully tested spending from quantum addresses on regtest
+    - Soft fork already ALWAYS_ACTIVE on regtest/testnet for testing
 
 ### Critical Issue: Wallet Ownership of Quantum Addresses (June 28, 2025)
 **Problem**: Wallet shows `ismine: false` for quantum P2WSH addresses
@@ -152,10 +160,9 @@ witness: [signature][pubkey]
    - Migration guide for users
 
 ### Known Issues
-1. **Wallet ownership**: Quantum addresses show `ismine: false` (fixing now)
-2. **Temporary keystore**: Still using global keystore alongside descriptors
-3. **Test coverage**: Some transaction validation tests need proper context
-4. **Migration tools**: ECDSA→quantum migration utilities not implemented
+1. **Key Mismatch Issue**: Some quantum addresses contain keys not in wallet (fixed by creating fresh addresses)
+2. **Test coverage**: Some transaction validation tests need proper context
+3. **Migration tools**: ECDSA→quantum migration utilities not implemented
 
 ## Key Development Learnings
 
@@ -312,5 +319,5 @@ grep -i "quantum\|error" ~/.bitcoin/regtest/debug.log
 ```
 
 ---
-*Last Updated: June 28, 2025*
-*Version: 1.3 - Major architecture improvements: removed global keystore, unified RPC approach*
+*Last Updated: June 30, 2025*
+*Version: 1.5 - Completed quantum signature soft fork implementation with successful testing*

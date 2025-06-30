@@ -202,6 +202,7 @@ target_link_libraries(bitcoind PRIVATE oqs)
 15. **Unified RPC Approach** - Extended standard RPCs instead of separate quantum commands
 16. **Quantum Message Signing** - Full support with embedded public keys in signatures
 17. **Wallet Encryption** - Full encryption support for quantum keys with proper key derivation
+18. **Push Size Limit Bypass** - Soft fork allows quantum signatures to exceed 520-byte limit
 
 ### 🟢 Recently Completed (June 27, 2025)
 1. **Quantum Key Encryption** - EncryptQuantumKey/DecryptQuantumKey functions implemented
@@ -222,6 +223,18 @@ target_link_libraries(bitcoind PRIVATE oqs)
 1. **Quantum Address Display with Q Prefixes** - Implemented transparent Q prefix handling
    - Q1 prefix for ML-DSA addresses, Q2 for SLH-DSA addresses, Q3 for P2QSH
    - Format: Q[type] prepended to full address (e.g., Q1mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn)
+
+### 🟢 Recently Completed (June 29-30, 2025)
+1. **Quantum Signature Soft Fork Implementation** - Successfully bypassed push size limits for quantum signatures
+   - Modified `VerifyWitnessProgram()`, `EvalScript()`, and `ExecuteWitnessScript()` in interpreter.cpp to allow quantum-sized elements
+   - Added check for SCRIPT_VERIFY_QUANTUM_SIGS flag (bit 21) before enforcing MAX_SCRIPT_ELEMENT_SIZE
+   - Fixed SignStep() in sign.cpp to only return signature for quantum witness scripts (pubkey is already in witness script)
+   - Fixed Stacks constructor in sign.cpp to use STANDARD_SCRIPT_VERIFY_FLAGS including quantum flag
+   - Allows ML-DSA signatures (3310 bytes) and SLH-DSA signatures (35665 bytes) with sighash
+   - Also allows quantum public keys (1952 bytes for ML-DSA, 48 bytes for SLH-DSA)
+   - Added SCRIPT_VERIFY_QUANTUM_SIGS to STANDARD_SCRIPT_VERIFY_FLAGS in policy.h
+   - Soft fork already ALWAYS_ACTIVE on regtest/testnet for immediate testing
+   - Successfully tested spending from quantum addresses on regtest network
 
 ### 🟢 Recently Completed (June 28, 2025)
 1. **P2WSH Implementation for Quantum Addresses** - Transitioned from P2PKH to P2WSH exclusively
@@ -347,7 +360,15 @@ target_link_libraries(bitcoind PRIVATE oqs)
 14. **No Segmentation Needed** - Witness data has 4MB block weight limit, sufficient for even SLH-DSA signatures
 15. **Unified RPC Design** - Extending existing RPCs (getnewaddress, getrawchangeaddress) is cleaner than separate quantum commands
 16. **Global Keystore Elimination** - Removing g_quantum_keystore improved architecture by fully integrating with descriptor system
-15. **Negative Quantum Indices Architecture (June 28, 2025)** - **CRITICAL DISCOVERY**: QSBitcoin uses negative indices (-1, -2, -3, ...) for tracking quantum addresses, which is NOT standard Bitcoin Core behavior:
+17. **Script Push Size Limits (June 29-30, 2025)** - **CRITICAL DISCOVERY**: Bitcoin's MAX_SCRIPT_ELEMENT_SIZE (520 bytes) prevents quantum signatures:
+    - **Problem**: ML-DSA signatures are 3310 bytes, SLH-DSA are 35665 bytes (with sighash byte)
+    - **Error**: "Push value size limit exceeded" when trying to spend quantum outputs
+    - **Root Cause**: Multiple places enforce 520-byte limit: VerifyWitnessProgram(), EvalScript(), ExecuteWitnessScript()
+    - **Solution**: Modified all three functions in interpreter.cpp to check SCRIPT_VERIFY_QUANTUM_SIGS flag before enforcing size limit
+    - **Additional Fix**: Fixed SignStep() in sign.cpp to only return signature for quantum witness scripts (pubkey is already in witness script)
+    - **Implementation**: Added special case for quantum signature/pubkey sizes when soft fork is active
+    - **Impact**: Quantum signatures now work properly in witness scripts - successfully tested spending on regtest
+18. **Negative Quantum Indices Architecture (June 28, 2025)** - **CRITICAL DISCOVERY**: QSBitcoin uses negative indices (-1, -2, -3, ...) for tracking quantum addresses, which is NOT standard Bitcoin Core behavior:
     - **Standard Bitcoin Core**: Uses non-negative indices (0, 1, 2, ...) for HD key derivation following BIP32
     - **QSBitcoin's Approach**: Uses negative indices because quantum keys cannot be HD-derived (no BIP32 support)
     - **Why This Hack Was Necessary**: 
@@ -376,5 +397,5 @@ This plan is a **living document** that will be updated throughout the developme
 - **Version Control**: Document significant changes in commit messages
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
-*Last Updated: June 28, 2025*  
-*Version: 4.1* - Major architecture improvements: removed global keystore, unified RPC approach, fixed signature verification
+*Last Updated: June 30, 2025*  
+*Version: 4.3* - Completed quantum signature soft fork implementation with successful testing

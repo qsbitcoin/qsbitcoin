@@ -493,8 +493,16 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             
             
-            if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
-                return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+            if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE) {
+                // Allow quantum signatures and pubkeys when SCRIPT_VERIFY_QUANTUM_SIGS is set
+                bool allow_quantum = (flags & SCRIPT_VERIFY_QUANTUM_SIGS) != 0;
+                if (!allow_quantum || 
+                    (vchPushValue.size() != 3309 && vchPushValue.size() != 3310 &&     // ML-DSA sigs
+                     vchPushValue.size() != 35664 && vchPushValue.size() != 35665 &&   // SLH-DSA sigs
+                     vchPushValue.size() != 1952 && vchPushValue.size() != 48)) {      // ML-DSA/SLH-DSA pubkeys
+                    return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+                }
+            }
 
             if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) {
                 // Note how OP_RESERVED does not count towards the opcode limit.
@@ -1902,8 +1910,18 @@ static bool ExecuteWitnessScript(const std::span<const valtype>& stack_span, con
     }
 
     // Disallow stack item size > MAX_SCRIPT_ELEMENT_SIZE in witness stack
+    // Exception: Allow large elements for quantum signatures when SCRIPT_VERIFY_QUANTUM_SIGS is set
+    bool allow_quantum = (flags & SCRIPT_VERIFY_QUANTUM_SIGS) != 0;
     for (const valtype& elem : stack) {
-        if (elem.size() > MAX_SCRIPT_ELEMENT_SIZE) return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+        if (elem.size() > MAX_SCRIPT_ELEMENT_SIZE) {
+            // Check if this could be a quantum signature or pubkey
+            if (allow_quantum && (elem.size() == 3310 || elem.size() == 35665 || // ML-DSA/SLH-DSA sigs with sighash
+                                  elem.size() == 1952 || elem.size() == 48)) {   // ML-DSA/SLH-DSA pubkeys
+                // Allow quantum signatures and pubkeys
+                continue;
+            }
+            return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+        }
     }
 
     // Run the script interpreter.

@@ -339,6 +339,13 @@ class ISignatureScheme {
 - [x] Update script validation rules
 - [x] Add soft fork activation logic
 - [x] Create script templates for quantum addresses (already done in quantum_address.cpp)
+- [x] **CRITICAL FIX (June 29-30, 2025)**: Implement push size limit bypass for quantum signatures
+  - [x] Modified `VerifyWitnessProgram()`, `EvalScript()`, and `ExecuteWitnessScript()` in interpreter.cpp to allow quantum-sized elements
+  - [x] Added SCRIPT_VERIFY_QUANTUM_SIGS flag (bit 21) to STANDARD_SCRIPT_VERIFY_FLAGS in policy.h
+  - [x] Fixed SignStep() in sign.cpp to only return signature for quantum witness scripts (pubkey is in witness script)
+  - [x] Fixed Stacks constructor in sign.cpp to use STANDARD_SCRIPT_VERIFY_FLAGS with quantum flag
+  - [x] Quantum signatures (3.3KB ML-DSA, 35KB SLH-DSA) now bypass 520-byte limit
+  - [x] Successfully tested spending from quantum addresses on regtest
 - [x] **Unit Tests**: Script system tests
   - [x] Create `src/test/script_quantum_tests.cpp`
   - [x] Test each new opcode functionality
@@ -364,6 +371,7 @@ class ISignatureScheme {
   - Testnet/Testnet4/Signet/Regtest: ALWAYS_ACTIVE for testing
 - Script validation rules updated in GetBlockScriptFlags() to activate quantum signatures based on deployment status
 - Created quantum_activation_tests.cpp to verify soft fork behavior
+- **Push Size Fix**: Modified interpreter.cpp to bypass MAX_SCRIPT_ELEMENT_SIZE (520 bytes) for quantum signatures/pubkeys when soft fork is active
 
 ### 3.3 Transaction Structure Updates
 **Status**: 🟢 Completed  
@@ -1076,8 +1084,8 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 
 ---
 
-*Last Updated: June 28, 2025*  
-*Version: 4.3* - Major architecture improvements: removed global keystore, unified RPC approach, fixed signature verification  
+*Last Updated: June 29, 2025*  
+*Version: 4.4* - Implemented quantum signature soft fork to bypass push size limits in script validation  
 
 ## Living Document Policy
 

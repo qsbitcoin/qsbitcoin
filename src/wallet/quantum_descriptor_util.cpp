@@ -15,8 +15,11 @@ namespace wallet {
 
 void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& provider, bool include_private, const DescriptorScriptPubKeyMan* desc_spkm)
 {
+    LogPrintf("[QUANTUM] PopulateQuantumSigningProvider called, script size=%d, include_private=%d\n", script.size(), include_private);
+    
     // Check if this is a P2WSH script (OP_0 + 32-byte hash)
     if (script.size() == 34 && script[0] == OP_0 && script[1] == 32) {
+        LogPrintf("[QUANTUM] Detected P2WSH script\n");
         // This is a P2WSH script - we need to check if it's for a quantum key
         // by looking up the witness script in the provider
         std::vector<unsigned char> hash_bytes(script.begin() + 2, script.begin() + 34);
@@ -43,6 +46,7 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
         // Witness scripts should be in the provider from the descriptor
         
         if (found) {
+            LogPrintf("[QUANTUM] Found witness script in provider\n");
             
             // Check if the witness script is a quantum script
             if (witness_script.size() >= 2) {
@@ -64,9 +68,11 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
                         
                         if (pubkey.IsValid()) {
                             CKeyID keyid = pubkey.GetID();
+                            LogPrintf("[QUANTUM] Found quantum pubkey in witness script, keyid=%s\n", keyid.ToString());
                             
                             // Add pubkey to provider
                             provider.quantum_pubkeys[keyid] = pubkey;
+                            LogPrintf("[QUANTUM] Added quantum pubkey to provider\n");
                             
                             // Try to get private key
                             if (include_private) {
@@ -76,6 +82,7 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
                                 // Try descriptor SPKM first
                                 if (desc_spkm) {
                                     have_key = desc_spkm->GetQuantumKey(keyid, &qkey);
+                                    LogPrintf("[QUANTUM] GetQuantumKey result: %d, qkey=%p\n", have_key, qkey);
                                 }
                                 
                                 // Only use descriptor SPKM keys
@@ -83,6 +90,9 @@ void PopulateQuantumSigningProvider(const CScript& script, FlatSigningProvider& 
                                 if (have_key && qkey) {
                                     // Store pointer to the quantum key in provider
                                     provider.quantum_keys[keyid] = qkey;
+                                    LogPrintf("[QUANTUM] Added quantum private key to provider for keyid=%s\n", keyid.ToString());
+                                } else {
+                                    LogPrintf("[QUANTUM] No quantum private key found for keyid=%s\n", keyid.ToString());
                                 }
                             }
                         }

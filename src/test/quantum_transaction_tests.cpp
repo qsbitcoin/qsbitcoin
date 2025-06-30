@@ -5,7 +5,11 @@
 #include <boost/test/unit_test.hpp>
 
 #include <script/quantum_signature.h>
+#include <script/quantum_witness.h>
+#include <script/interpreter.h>
+#include <script/sign.h>
 #include <crypto/quantum_key.h>
+#include <crypto/sha256.h>
 #include <primitives/transaction.h>
 #include <consensus/validation.h>
 #include <policy/policy.h>
@@ -237,6 +241,109 @@ BOOST_AUTO_TEST_CASE(quantum_signature_varint_encoding)
         
         // Scheme ID (1) + sig varint (3) + sig (10000) + pubkey varint (3) + pubkey (5000) = 15007
         BOOST_CHECK_EQUAL(encoded.size(), 15007);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
+{
+    // Test that quantum signatures work in witness scripts with proper soft fork flags
+    
+    // Test ML-DSA witness script
+    {
+        CQuantumKey key;
+        key.MakeNewKey(KeyType::ML_DSA_65);
+        CQuantumPubKey pubkey = key.GetPubKey();
+        
+        // Create witness script: <pubkey> OP_CHECKSIG_ML_DSA
+        CScript witness_script;
+        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+        
+        // Create P2WSH scriptPubKey
+        uint256 script_hash;
+        CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
+        CScript scriptPubKey;
+        scriptPubKey << OP_0 << std::vector<unsigned char>(script_hash.begin(), script_hash.end());
+        
+        // Create a dummy transaction to sign
+        CMutableTransaction mtx;
+        mtx.vin.resize(1);
+        mtx.vout.resize(1);
+        mtx.vout[0].nValue = 100000000; // 1 BTC
+        
+        // Create signature
+        uint256 hash = SignatureHash(witness_script, mtx, 0, SIGHASH_ALL, 100000000, SigVersion::WITNESS_V0);
+        std::vector<unsigned char> sig;
+        BOOST_CHECK(key.Sign(hash, sig));
+        sig.push_back(SIGHASH_ALL);
+        
+        // Build witness stack
+        CScriptWitness witness;
+        witness.stack.push_back(sig);
+        witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
+        
+        // Verify witness script execution passes with quantum flags
+        PrecomputedTransactionData txdata(mtx);
+        MutableTransactionSignatureChecker checker(&mtx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
+        ScriptError error = SCRIPT_ERR_OK;
+        
+        // Should pass with SCRIPT_VERIFY_QUANTUM_SIGS
+        unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
+        BOOST_CHECK(VerifyScript(CScript(), scriptPubKey, &witness, flags, checker, &error));
+        BOOST_CHECK_EQUAL(error, SCRIPT_ERR_OK);
+        
+        // Should fail without SCRIPT_VERIFY_QUANTUM_SIGS due to push size
+        flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
+        BOOST_CHECK(!VerifyScript(CScript(), scriptPubKey, &witness, flags, checker, &error));
+        BOOST_CHECK_EQUAL(error, SCRIPT_ERR_PUSH_SIZE);
+    }
+    
+    // Test SLH-DSA witness script
+    {
+        CQuantumKey key;
+        key.MakeNewKey(KeyType::SLH_DSA_192F);
+        CQuantumPubKey pubkey = key.GetPubKey();
+        
+        // Create witness script: <pubkey> OP_CHECKSIG_SLH_DSA
+        CScript witness_script;
+        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_SLH_DSA;
+        
+        // Create P2WSH scriptPubKey
+        uint256 script_hash;
+        CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
+        CScript scriptPubKey;
+        scriptPubKey << OP_0 << std::vector<unsigned char>(script_hash.begin(), script_hash.end());
+        
+        // Create a dummy transaction to sign
+        CMutableTransaction mtx;
+        mtx.vin.resize(1);
+        mtx.vout.resize(1);
+        mtx.vout[0].nValue = 100000000; // 1 BTC
+        
+        // Create signature
+        uint256 hash = SignatureHash(witness_script, mtx, 0, SIGHASH_ALL, 100000000, SigVersion::WITNESS_V0);
+        std::vector<unsigned char> sig;
+        BOOST_CHECK(key.Sign(hash, sig));
+        sig.push_back(SIGHASH_ALL);
+        
+        // Build witness stack
+        CScriptWitness witness;
+        witness.stack.push_back(sig);
+        witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
+        
+        // Verify witness script execution passes with quantum flags
+        PrecomputedTransactionData txdata(mtx);
+        MutableTransactionSignatureChecker checker(&mtx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
+        ScriptError error = SCRIPT_ERR_OK;
+        
+        // Should pass with SCRIPT_VERIFY_QUANTUM_SIGS
+        unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
+        BOOST_CHECK(VerifyScript(CScript(), scriptPubKey, &witness, flags, checker, &error));
+        BOOST_CHECK_EQUAL(error, SCRIPT_ERR_OK);
+        
+        // Should fail without SCRIPT_VERIFY_QUANTUM_SIGS due to push size (SLH-DSA sig is ~35KB)
+        flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
+        BOOST_CHECK(!VerifyScript(CScript(), scriptPubKey, &witness, flags, checker, &error));
+        BOOST_CHECK_EQUAL(error, SCRIPT_ERR_PUSH_SIZE);
     }
 }
 

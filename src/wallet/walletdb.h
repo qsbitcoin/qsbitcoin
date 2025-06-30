@@ -266,6 +266,10 @@ public:
     bool WriteQuantumDescriptorKey(const uint256& desc_id, const quantum::CQuantumPubKey& pubkey, const quantum::CQuantumKey& privkey);
     bool WriteCryptedQuantumDescriptorKey(const uint256& desc_id, const quantum::CQuantumPubKey& pubkey, const std::vector<unsigned char>& secret);
     bool WriteQuantumKeyMetadata(const CKeyMetadata& meta, const quantum::CQuantumPubKey& pubkey, bool overwrite);
+    
+    // Script persistence for descriptor wallets
+    bool WriteDescriptorScript(const uint256& desc_id, const CScript& script, int32_t index);
+    bool WriteDescriptorWitnessScript(const uint256& desc_id, const uint256& witness_hash, const CScript& witness_script);
 
     bool WriteLockedUTXO(const COutPoint& output);
     bool EraseLockedUTXO(const COutPoint& output);
