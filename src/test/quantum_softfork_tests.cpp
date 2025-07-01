@@ -18,6 +18,7 @@
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <util/strencodings.h>
+#include <crypto/sha256.h>
 
 #include <vector>
 
@@ -29,27 +30,20 @@ extern bool CastToBool(const std::vector<unsigned char>& vch);
 BOOST_FIXTURE_TEST_SUITE(quantum_softfork_tests, BasicTestingSetup)
 
 // Helper function to create a dummy quantum signature of specified size
-std::vector<unsigned char> CreateDummyQuantumSignature(size_t base_size, uint8_t scheme_id)
+std::vector<unsigned char> CreateDummyQuantumSignature(size_t total_size, uint8_t scheme_id)
 {
     std::vector<unsigned char> sig;
-    sig.push_back(scheme_id);
     
-    // Add varint for signature length
-    size_t sig_data_size = base_size - 2; // Subtract scheme_id and length encoding
-    if (sig_data_size < 253) {
-        sig.push_back(static_cast<uint8_t>(sig_data_size));
-    } else {
-        sig.push_back(253);
-        sig.push_back(sig_data_size & 0xFF);
-        sig.push_back((sig_data_size >> 8) & 0xFF);
-        sig_data_size -= 2; // Adjust for the extra bytes
+    // Reserve space to ensure we hit the exact size
+    sig.reserve(total_size);
+    
+    // Fill with dummy data to reach the exact size
+    sig.resize(total_size, 0x01);
+    
+    // Set the last byte as sighash type
+    if (!sig.empty()) {
+        sig.back() = SIGHASH_ALL;
     }
-    
-    // Add dummy signature data
-    sig.insert(sig.end(), sig_data_size, 0x01);
-    
-    // Add sighash type
-    sig.push_back(SIGHASH_ALL);
     
     return sig;
 }
@@ -88,9 +82,11 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
         // Without SCRIPT_VERIFY_QUANTUM_SIGS, should fail due to push size
         {
             MutableTransactionSignatureChecker checker(&mtx, 0, 0, txdata, MissingDataBehavior::FAIL);
-            // Create a dummy witness program hash
-            std::vector<unsigned char> witness_program_vec(32, 0);
-            witness_program_vec[31] = 1;
+            // Create proper witness program hash from witness script
+            uint256 script_hash;
+            CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
+            std::vector<unsigned char> witness_program_vec(script_hash.begin(), script_hash.end());
+            
             ScriptError error = SCRIPT_ERR_OK;
             unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
             
@@ -105,9 +101,10 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
         // With SCRIPT_VERIFY_QUANTUM_SIGS, should pass push size check (but fail sig verification)
         {
             MutableTransactionSignatureChecker checker(&mtx, 0, 0, txdata, MissingDataBehavior::FAIL);
-            // Create a dummy witness program hash
-            std::vector<unsigned char> witness_program_vec(32, 0);
-            witness_program_vec[31] = 1;
+            // Create proper witness program hash from witness script
+            uint256 script_hash;
+            CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
+            std::vector<unsigned char> witness_program_vec(script_hash.begin(), script_hash.end());
             ScriptError error = SCRIPT_ERR_OK;
             unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
             
@@ -117,8 +114,10 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
             // Will fail because we're using dummy signatures, but should get past push size check
             BOOST_CHECK(!VerifyScript(CScript(), CScript() << OP_0 << witness_program_vec, 
                                     &scriptWitness, flags, checker, &error));
-            // The error should NOT be SCRIPT_ERR_PUSH_SIZE
-            BOOST_CHECK(error != SCRIPT_ERR_PUSH_SIZE);
+            // The error should NOT be SCRIPT_ERR_PUSH_SIZE when quantum flags are set
+            // It might fail with other errors like SCRIPT_ERR_EVAL_FALSE or SCRIPT_ERR_QUANTUM_SIG_VERIFICATION
+            BOOST_CHECK_MESSAGE(error != SCRIPT_ERR_PUSH_SIZE, 
+                              "Got SCRIPT_ERR_PUSH_SIZE even with SCRIPT_VERIFY_QUANTUM_SIGS flag set. Error code: " + std::to_string(error));
         }
     }
     
@@ -140,9 +139,11 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
         // Without SCRIPT_VERIFY_QUANTUM_SIGS, should fail due to push size
         {
             MutableTransactionSignatureChecker checker(&mtx, 0, 0, txdata, MissingDataBehavior::FAIL);
-            // Create a dummy witness program hash
-            std::vector<unsigned char> witness_program_vec(32, 0);
-            witness_program_vec[31] = 1;
+            // Create proper witness program hash from witness script
+            uint256 script_hash;
+            CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
+            std::vector<unsigned char> witness_program_vec(script_hash.begin(), script_hash.end());
+            
             ScriptError error = SCRIPT_ERR_OK;
             unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
             
@@ -157,9 +158,10 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
         // With SCRIPT_VERIFY_QUANTUM_SIGS, should pass push size check
         {
             MutableTransactionSignatureChecker checker(&mtx, 0, 0, txdata, MissingDataBehavior::FAIL);
-            // Create a dummy witness program hash
-            std::vector<unsigned char> witness_program_vec(32, 0);
-            witness_program_vec[31] = 1;
+            // Create proper witness program hash from witness script
+            uint256 script_hash;
+            CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
+            std::vector<unsigned char> witness_program_vec(script_hash.begin(), script_hash.end());
             ScriptError error = SCRIPT_ERR_OK;
             unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
             
@@ -169,8 +171,10 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
             // Will fail because we're using dummy signatures, but should get past push size check
             BOOST_CHECK(!VerifyScript(CScript(), CScript() << OP_0 << witness_program_vec, 
                                     &scriptWitness, flags, checker, &error));
-            // The error should NOT be SCRIPT_ERR_PUSH_SIZE
-            BOOST_CHECK(error != SCRIPT_ERR_PUSH_SIZE);
+            // The error should NOT be SCRIPT_ERR_PUSH_SIZE when quantum flags are set
+            // It might fail with other errors like SCRIPT_ERR_EVAL_FALSE or SCRIPT_ERR_QUANTUM_SIG_VERIFICATION
+            BOOST_CHECK_MESSAGE(error != SCRIPT_ERR_PUSH_SIZE, 
+                              "Got SCRIPT_ERR_PUSH_SIZE even with SCRIPT_VERIFY_QUANTUM_SIGS flag set. Error code: " + std::to_string(error));
         }
     }
 }
