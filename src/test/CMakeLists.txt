@@ -52,6 +52,7 @@ add_executable(test_bitcoin
   quantum_softfork_tests.cpp
   quantum_witness_corruption_tests.cpp
   quantum_push_size_tests.cpp
+  quantum_comprehensive_tests.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
   descriptor_tests.cpp
