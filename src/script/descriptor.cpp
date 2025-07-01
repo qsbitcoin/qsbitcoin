@@ -1141,8 +1141,10 @@ protected:
     
 public:
     QPKHDescriptor(std::unique_ptr<PubkeyProvider> prov) : DescriptorImpl(Vector(std::move(prov)), "qpkh") {}
+    QPKHDescriptor(std::vector<std::unique_ptr<PubkeyProvider>> provs) : DescriptorImpl(std::move(provs), "qpkh") {}
     std::optional<OutputType> GetOutputType() const override { return OutputType::BECH32; }
     bool IsSingleType() const final { return true; }
+    bool IsSolvable() const override { return true; }
     
     std::optional<int64_t> ScriptSize() const override { 
         // P2WSH script: OP_0 <32-byte-hash>
@@ -2710,21 +2712,18 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
                                 }
                             }
                             
-                            // If we can't find a matching regular pubkey, create a const provider
-                            // This at least makes the script "parseable" if not fully solvable
-                            // The actual quantum signing will be handled by the quantum-aware signing code
-                            std::string hex_str = HexStr(pubkey_data);
-                            std::span<const char> hex_span{hex_str.data(), hex_str.size()};
-                            FlatSigningProvider dummy_provider;
-                            std::string error;
-                            auto providers = ParsePubkey(0, hex_span, ctx, dummy_provider, error);
-                            if (!providers.empty()) {
-                                return std::make_unique<PKDescriptor>(std::move(providers[0]), true);
-                            }
+                            // Create a QuantumPubkeyProvider for this quantum pubkey
+                            quantum::SignatureSchemeID scheme_id = (opcode == OP_CHECKSIG_ML_DSA) ? 
+                                quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
                             
-                            // Last resort: create a raw pubkey descriptor
-                            // This ensures the witness script is at least recognized
-                            return nullptr;
+                            auto quantum_provider = std::make_unique<QuantumPubkeyProvider>(0, qpubkey, scheme_id);
+                            
+                            // Create a QPKHDescriptor with the quantum provider
+                            std::vector<std::unique_ptr<PubkeyProvider>> providers;
+                            providers.push_back(std::move(quantum_provider));
+                            
+                            // Return a QPKHDescriptor for proper solvability
+                            return std::make_unique<QPKHDescriptor>(std::move(providers));
                         }
                     }
                 }

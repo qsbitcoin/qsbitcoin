@@ -51,7 +51,7 @@ public:
         const std::vector<unsigned char>& vchPubKey,
         const CScript& scriptCode,
         SigVersion sigversion,
-        quantum::SignatureSchemeID scheme_id) const
+        uint8_t scheme_id) const override
     {
         return false;
     }

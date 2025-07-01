@@ -14,10 +14,11 @@
 
 namespace wallet {
 
-bool SetupQuantumDescriptor(CWallet& wallet, WalletBatch& batch, quantum::SignatureSchemeID scheme_id, bool internal)
+bool SetupQuantumDescriptor(CWallet& wallet, WalletBatch& batch, quantum::SignatureSchemeID scheme_id, bool internal, std::unique_ptr<quantum::CQuantumKey> provided_key)
 {
     LOCK(wallet.cs_wallet);
-    LogPrintf("[QUANTUM] SetupQuantumDescriptor called with scheme_id=%d, internal=%d\n", (int)scheme_id, internal);
+    LogPrintf("[QUANTUM] SetupQuantumDescriptor called with scheme_id=%d, internal=%d, provided_key=%s\n", 
+              (int)scheme_id, internal, provided_key ? "yes" : "no");
     
     // Determine the quantum key type
     ::quantum::KeyType key_type;
@@ -34,14 +35,20 @@ bool SetupQuantumDescriptor(CWallet& wallet, WalletBatch& batch, quantum::Signat
         return false;
     }
     
-    // Generate a quantum key for this descriptor
-    auto qkey = std::make_unique<quantum::CQuantumKey>();
-    qkey->MakeNewKey(key_type);
-    if (!qkey->IsValid()) {
-        LogPrintf("[QUANTUM] Failed to generate quantum key for descriptor\n");
-        return false;
+    // Use provided key or generate a new one
+    std::unique_ptr<quantum::CQuantumKey> qkey;
+    if (provided_key) {
+        qkey = std::move(provided_key);
+        LogPrintf("[QUANTUM] Using provided quantum key\n");
+    } else {
+        qkey = std::make_unique<quantum::CQuantumKey>();
+        qkey->MakeNewKey(key_type);
+        if (!qkey->IsValid()) {
+            LogPrintf("[QUANTUM] Failed to generate quantum key for descriptor\n");
+            return false;
+        }
+        LogPrintf("[QUANTUM] Generated quantum key successfully\n");
     }
-    LogPrintf("[QUANTUM] Generated quantum key successfully\n");
     
     quantum::CQuantumPubKey qpubkey = qkey->GetPubKey();
     std::vector<unsigned char> pubkey_data = qpubkey.GetKeyData();
@@ -121,12 +128,12 @@ void SetupQuantumDescriptors(CWallet& wallet, WalletBatch& batch)
     
     // Create quantum descriptors for both ML-DSA and SLH-DSA
     // Only create receive descriptors (internal=false) for now
-    if (!SetupQuantumDescriptor(wallet, batch, quantum::SCHEME_ML_DSA_65, false)) {
+    if (!SetupQuantumDescriptor(wallet, batch, quantum::SCHEME_ML_DSA_65, false, nullptr)) {
         throw std::runtime_error("Failed to setup ML-DSA quantum descriptor");
     }
     LogPrintf("SetupQuantumDescriptors: ML-DSA descriptor created\n");
     
-    if (!SetupQuantumDescriptor(wallet, batch, quantum::SCHEME_SLH_DSA_192F, false)) {
+    if (!SetupQuantumDescriptor(wallet, batch, quantum::SCHEME_SLH_DSA_192F, false, nullptr)) {
         throw std::runtime_error("Failed to setup SLH-DSA quantum descriptor");
     }
     LogPrintf("SetupQuantumDescriptors: SLH-DSA descriptor created\n");

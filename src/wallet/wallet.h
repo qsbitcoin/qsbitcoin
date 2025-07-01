@@ -1064,7 +1064,7 @@ public:
     //! Returns nullopt when no descriptor has the key or if the wallet is locked.
     std::optional<CKey> GetKey(const CKeyID& keyid) const;
     
-    friend bool SetupQuantumDescriptor(CWallet& wallet, WalletBatch& batch, quantum::SignatureSchemeID scheme_id, bool internal);
+    friend bool SetupQuantumDescriptor(CWallet& wallet, WalletBatch& batch, quantum::SignatureSchemeID scheme_id, bool internal, std::unique_ptr<quantum::CQuantumKey> provided_key);
     friend void SetupQuantumDescriptors(CWallet& wallet, WalletBatch& batch);
 };
 

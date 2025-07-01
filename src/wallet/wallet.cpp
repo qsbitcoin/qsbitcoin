@@ -2532,18 +2532,17 @@ util::Result<CTxDestination> CWallet::GetNewQuantumDestination(const quantum::Si
     if (!added_to_spkm) {
         LogPrintf("[QUANTUM] No existing quantum descriptor found, creating new one\n");
         WalletBatch batch(GetDatabase());
-        if (SetupQuantumDescriptor(*this, batch, scheme_id, false /* not internal */)) {
-            LogPrintf("[QUANTUM] Successfully created new quantum descriptor\n");
-            // Try again to find the newly created quantum descriptor
+        // Pass our generated key to SetupQuantumDescriptor
+        if (SetupQuantumDescriptor(*this, batch, scheme_id, false /* not internal */, std::move(key))) {
+            LogPrintf("[QUANTUM] Successfully created new quantum descriptor with our key\n");
+            // The descriptor now has our key, find it and use it
             for (auto& spkm : GetAllScriptPubKeyMans()) {
                 auto desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
                 if (desc_spkm && desc_spkm->GetQuantumKeyCount() > 0) {
                     LogPrintf("[QUANTUM] Found newly created quantum descriptor\n");
-                    // Move the key since it was already moved above
-                    auto new_key = std::make_unique<quantum::CQuantumKey>();
-                    new_key->MakeNewKey(key_type);
-                    if (desc_spkm->AddQuantumKey(keyid, std::move(new_key))) {
-                        LogPrintf("[QUANTUM] Added key to newly created quantum descriptor\n");
+                    // Check if our key is in there
+                    if (desc_spkm->HaveQuantumKey(keyid)) {
+                        LogPrintf("[QUANTUM] Confirmed our key is in the descriptor\n");
                         added_to_spkm = true;
                         quantum_spkm_used = desc_spkm;
                         break;
@@ -2592,6 +2591,17 @@ util::Result<CTxDestination> CWallet::GetNewQuantumDestination(const quantum::Si
     // Add to address book
     SetAddressBook(dest, label, AddressPurpose::RECEIVE);
     LogPrintf("[QUANTUM] Added to address book with label: %s\n", label);
+    
+    // VERIFICATION: Ensure we can retrieve the quantum key
+    if (quantum_spkm_used) {
+        const quantum::CQuantumKey* verify_key = nullptr;
+        if (quantum_spkm_used->GetQuantumKey(keyid, &verify_key) && verify_key) {
+            LogPrintf("[QUANTUM] VERIFICATION SUCCESS: Can retrieve quantum key for keyid=%s\n", keyid.ToString());
+        } else {
+            LogPrintf("[QUANTUM] VERIFICATION FAILED: Cannot retrieve quantum key for keyid=%s\n", keyid.ToString());
+            return util::Error{_("Quantum key storage verification failed")};
+        }
+    }
     
     return dest;
 }

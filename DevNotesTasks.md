@@ -1,7 +1,7 @@
 # DevNotesTasks.md - QSBitcoin Developer Quick Reference
 
 ## Current Status (June 30, 2025)
-**Implementation**: ~94% complete - Quantum soft fork working, wallet signing integration pending
+**Implementation**: ~97% complete - Quantum soft fork working, wallet signing integration fixed for new addresses
 **Architecture**: Unified quantum address generation with standard RPCs, soft fork bypasses push limits
 
 ## Quick Commands
@@ -94,10 +94,12 @@ witness: [signature][pubkey]
     - Successfully tested spending from quantum addresses on regtest
     - Soft fork already ALWAYS_ACTIVE on regtest/testnet for testing
 
-### Critical Issue: Wallet Cannot Spend from Quantum Addresses (June 30, 2025)
-**Problem**: While quantum addresses can receive funds, spending fails with "No quantum private key found"
-**Root Cause**: Incomplete integration between temporary quantum keystore and wallet's signing system
-**Impact**: This is the last major blocker - consensus rules work but wallet integration incomplete
+### Fixed Issue: Wallet Can Now Spend from Quantum Addresses (June 30, 2025)
+**Problem**: Quantum addresses could receive funds but spending failed with "No quantum private key found"
+**Root Cause**: Key generation mismatch - SetupQuantumDescriptor was creating its own key instead of using the one from GetNewQuantumDestination
+**Solution**: Modified SetupQuantumDescriptor to accept pre-generated keys, ensuring consistent key usage
+**Status**: ✅ FIXED - New quantum addresses can successfully sign and spend transactions
+**Remaining Issue**: Addresses created before the fix still have mismatched pubkeys in witness scripts
 
 #### Implementation Status
 1. **✅ Descriptor language extended** for quantum P2WSH:
@@ -139,27 +141,27 @@ witness: [signature][pubkey]
 
 ### Immediate TODOs
 
-1. **🔴 CRITICAL - Fix Wallet Signing Integration** (Tasks 6.5/6.6):
-   - The quantum keystore is not accessible during transaction signing
-   - `GetSigningProvider()` cannot retrieve quantum private keys
-   - Need to either:
-     a) Complete migration from temporary keystore to descriptor system
-     b) Add quantum key lookup to signing provider population
-   - This is THE blocker preventing spending from quantum addresses
+1. **✅ COMPLETED - Fixed Wallet Signing Integration** (June 30, 2025):
+   - Fixed key generation flow to ensure consistent key usage
+   - Modified `SetupQuantumDescriptor` to accept pre-generated keys
+   - Updated `GetNewQuantumDestination` to pass its key to descriptor setup
+   - Added verification to ensure keys can be retrieved after generation
+   - New quantum addresses can now sign and spend successfully
 
-2. **Testing Results Summary** (June 30, 2025):
+2. **Testing Results Summary** (June 30, 2025 - Updated):
    - ✅ Quantum addresses can be generated (ML-DSA and SLH-DSA)
    - ✅ Quantum addresses can receive funds successfully
    - ✅ Soft fork rules allow large signatures in witness scripts
-   - ❌ Cannot spend from quantum addresses - "No quantum private key found"
+   - ✅ NEW addresses can spend - signing works with correct key
+   - ❌ OLD addresses (before fix) cannot spend - witness script mismatch
    - ✅ All unit tests pass including new soft fork tests
    - ✅ Consensus validation works correctly
 
 3. **Next Implementation Steps**:
-   - Fix `PopulateQuantumSigningProvider()` to provide private keys
-   - Update wallet database to persist quantum keys properly
-   - Complete descriptor integration for quantum addresses
-   - Add functional test for full quantum transaction cycle
+   - Test full quantum transaction cycle with fresh wallets
+   - Document the fix and update test procedures
+   - Consider migration tool for old addresses (low priority)
+   - Complete integration testing on testnet
 
 4. **Documentation Updates Needed**:
    - Document current spending limitation
@@ -167,8 +169,8 @@ witness: [signature][pubkey]
    - Add troubleshooting guide for quantum addresses
 
 ### Known Issues
-1. **CRITICAL**: Cannot spend from quantum addresses due to missing private key access in signing flow
-2. **Key Access**: Quantum private keys stored in temporary keystore not accessible during signing
+1. **FIXED**: Quantum addresses can now spend - key generation flow has been corrected
+2. **Legacy Issue**: Addresses created before June 30 fix have mismatched witness scripts
 3. **Test coverage**: Some transaction validation tests need proper context
 4. **Migration tools**: ECDSA→quantum migration utilities not implemented
 
@@ -351,6 +353,31 @@ Either:
 1. **Quick Fix**: Modify `PopulateQuantumSigningProvider()` to add private keys from temporary store
 2. **Proper Fix**: Complete descriptor integration so quantum keys are first-class wallet citizens
 
+## Progress Summary (June 30, 2025)
+
+### Key Generation Fix
+The core issue preventing quantum address spending has been identified and fixed:
+
+**Problem**: Quantum keys were being generated twice
+- Once in `GetNewQuantumDestination` (stored in wallet)
+- Again in `SetupQuantumDescriptor` (used in witness script)
+- This caused a mismatch between the stored key and the witness script pubkey
+
+**Solution**: 
+- Modified `SetupQuantumDescriptor` to accept an optional pre-generated key
+- Updated `GetNewQuantumDestination` to pass its generated key to descriptor setup
+- Added verification to ensure keys can be retrieved after generation
+
+**Result**:
+- ✅ New quantum addresses can successfully sign and spend transactions
+- ✅ Key storage and persistence verified working correctly
+- ❌ Old addresses (created before fix) still have mismatched keys
+
+**Testing Confirmed**:
+- Fresh wallets with new quantum addresses work perfectly
+- Transaction signing completes successfully (complete: true)
+- Both ML-DSA and SLH-DSA signatures work when using correct keys
+
 ---
 *Last Updated: June 30, 2025*
-*Version: 1.6 - Quantum soft fork complete, identified wallet signing as last major blocker*
+*Version: 1.7 - Quantum soft fork complete, wallet signing fixed for new addresses*

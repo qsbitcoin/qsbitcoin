@@ -236,6 +236,21 @@ target_link_libraries(bitcoind PRIVATE oqs)
    - Soft fork already ALWAYS_ACTIVE on regtest/testnet for immediate testing
    - Successfully tested spending from quantum addresses on regtest network
 
+### 🟢 Recently Completed (July 1, 2025)
+1. **Fixed Quantum Transaction Spending** - Resolved all issues preventing quantum addresses from spending funds
+   - Fixed witness script corruption by preventing multiple ScriptPubKeyMans from modifying witness data
+   - Updated IsWitnessStandard() in policy.cpp to allow quantum witness scripts (up to 25KB)
+   - Updated push size checks in interpreter.cpp to recognize and allow quantum witness scripts
+   - Added SCRIPT_VERIFY_QUANTUM_SIGS to MANDATORY_SCRIPT_VERIFY_FLAGS for proper validation
+   - Implemented CheckQuantumSignature() in GenericTransactionSignatureChecker class
+   - Successfully tested complete transaction cycle: receive, sign, broadcast, and mine
+2. **Complete End-to-End Testing** - Verified full quantum transaction flow on regtest
+   - Created quantum address with ML-DSA-65 key
+   - Received funds to quantum address
+   - Signed transaction with quantum signature
+   - Broadcast and mined transaction successfully
+   - Confirmed transaction in blockchain
+
 ### 🟢 Recently Completed (June 28, 2025)
 1. **P2WSH Implementation for Quantum Addresses** - Transitioned from P2PKH to P2WSH exclusively
    - All quantum addresses now use bech32 P2WSH format (bc1q...)
@@ -381,12 +396,25 @@ target_link_libraries(bitcoind PRIVATE oqs)
     - **Proper Solution (Future)**: Create proper quantum descriptors (`qpkh(quantum:ml-dsa:pubkey_hex)`) using non-ranged descriptors where each quantum address gets its own descriptor
     - **Status**: Current implementation works but is a temporary workaround until proper quantum descriptor system is complete
 
+19. **Witness Corruption Issue (July 1, 2025)** - **CRITICAL FIX**: Multiple ScriptPubKeyMans were corrupting quantum witness data:
+    - **Problem**: Quantum SPKM successfully signed (witness stack 0→2), but other SPKMs reduced it back to 1 element
+    - **Root Cause**: Each SPKM tries to sign, and non-quantum SPKMs would "simplify" the witness they couldn't understand
+    - **Solution**: Modified SignTransaction() to preserve witness data when SPKM doesn't make progress
+    - **Detection**: Check if witness stack size increased or went from empty to non-empty
+    - **Result**: Quantum signatures now properly maintain 2-element witness stack (signature + witness_script)
+20. **Policy vs Mandatory Flags (July 1, 2025)** - **IMPORTANT**: Transaction validation has multiple layers:
+    - **Policy Flags**: What nodes will relay (includes SCRIPT_VERIFY_QUANTUM_SIGS)
+    - **Mandatory Flags**: What causes immediate rejection (did NOT include quantum flag)
+    - **Consensus Flags**: What's valid in blocks (includes quantum when soft fork active)
+    - **Fix**: Added SCRIPT_VERIFY_QUANTUM_SIGS to MANDATORY_SCRIPT_VERIFY_FLAGS
+    - **Impact**: Quantum transactions now pass all validation layers
+
 ### Next Critical Steps
-1. **Documentation Updates** - Update all documentation to reflect unified RPC approach
-2. **Integration Testing** - Full end-to-end testing with quantum P2WSH transactions
-3. **Network Testing** - Deploy to testnet for real-world validation
-4. **Performance Optimization** - Profile signature verification performance
-5. **User Experience** - Polish error messages and help text for unified RPCs
+1. **Migration Tools** - Build tools to migrate funds from ECDSA to quantum addresses
+2. **Testnet Deployment** - Deploy to Bitcoin testnet for wider testing
+3. **Performance Optimization** - Optimize signature verification performance
+4. **Documentation** - Complete user guides and migration documentation
+5. **Security Audit** - External review of quantum signature implementation
 
 ## Living Document Notice
 
@@ -397,5 +425,5 @@ This plan is a **living document** that will be updated throughout the developme
 - **Version Control**: Document significant changes in commit messages
 - **Continuous Improvement**: Incorporate lessons learned at each phase completion
 
-*Last Updated: June 30, 2025*  
-*Version: 4.3* - Completed quantum signature soft fork implementation with successful testing
+*Last Updated: July 1, 2025*  
+*Version: 5.0* - Completed full quantum transaction support with successful end-to-end testing

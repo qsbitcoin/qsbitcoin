@@ -14,6 +14,8 @@
 #include <consensus/validation.h>
 #include <policy/policy.h>
 #include <test/util/setup_common.h>
+#include <test/util/logging.h>
+#include <script/quantum_sigchecker.h>
 
 using namespace quantum;
 
@@ -244,6 +246,61 @@ BOOST_AUTO_TEST_CASE(quantum_signature_varint_encoding)
     }
 }
 
+BOOST_AUTO_TEST_CASE(quantum_direct_signature_check)
+{
+    // Test direct quantum signature verification first
+    {
+        CQuantumKey key;
+        key.MakeNewKey(KeyType::ML_DSA_65);
+        CQuantumPubKey pubkey = key.GetPubKey();
+        
+        // Create witness script first
+        CScript witness_script;
+        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+        
+        // Create transaction with proper inputs
+        CMutableTransaction mtx;
+        mtx.version = 2;  // Witness transactions should be version 2
+        mtx.vin.resize(1);
+        mtx.vin[0].prevout.hash = Txid::FromHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").value();
+        mtx.vin[0].prevout.n = 0;
+        mtx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
+        mtx.vout.resize(1);
+        mtx.vout[0].nValue = 100000000;
+        
+        // Compute the correct signature hash for the transaction
+        uint256 sighash = SignatureHash(witness_script, mtx, 0, SIGHASH_ALL, 100000000, SigVersion::WITNESS_V0);
+        
+        // Sign the transaction hash
+        std::vector<unsigned char> sig;
+        BOOST_CHECK(key.Sign(sighash, sig));
+        
+        // Verify directly
+        BOOST_CHECK(CQuantumKey::Verify(sighash, sig, pubkey));
+        
+        // Now test with signature checker
+        // For witness transactions, we need PrecomputedTransactionData
+        CTransaction tx(mtx);
+        PrecomputedTransactionData txdata(tx);
+        QuantumTransactionSignatureChecker<CTransaction> checker(&tx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
+        
+        // Add SIGHASH_ALL byte
+        sig.push_back(SIGHASH_ALL);
+        
+        // Test CheckQuantumSignature directly
+        // First, let's verify our inputs are correct
+        BOOST_CHECK_MESSAGE(sig.size() > 0, "Signature is empty");
+        BOOST_CHECK_MESSAGE(sig.back() == SIGHASH_ALL, "Signature doesn't end with SIGHASH_ALL");
+        BOOST_CHECK_MESSAGE(pubkey.GetKeyData().size() == MAX_ML_DSA_65_PUBKEY_SIZE, 
+                          "Pubkey size is " + std::to_string(pubkey.GetKeyData().size()) + 
+                          " expected " + std::to_string(MAX_ML_DSA_65_PUBKEY_SIZE));
+        
+        bool result = checker.CheckQuantumSignature(sig, pubkey.GetKeyData(), witness_script, 
+                                                   SigVersion::WITNESS_V0, quantum::SCHEME_ML_DSA_65);
+        BOOST_CHECK_MESSAGE(result, "Direct CheckQuantumSignature failed");
+    }
+}
+
 BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
 {
     // Test that quantum signatures work in witness scripts with proper soft fork flags
@@ -264,9 +321,13 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         CScript scriptPubKey;
         scriptPubKey << OP_0 << std::vector<unsigned char>(script_hash.begin(), script_hash.end());
         
-        // Create a dummy transaction to sign
+        // Create a dummy transaction to sign with proper inputs
         CMutableTransaction mtx;
+        mtx.version = 2;  // Witness transactions should be version 2
         mtx.vin.resize(1);
+        mtx.vin[0].prevout.hash = Txid::FromHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").value();
+        mtx.vin[0].prevout.n = 0;
+        mtx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
         mtx.vout.resize(1);
         mtx.vout[0].nValue = 100000000; // 1 BTC
         
@@ -282,8 +343,9 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
         
         // Verify witness script execution passes with quantum flags
-        PrecomputedTransactionData txdata(mtx);
-        MutableTransactionSignatureChecker checker(&mtx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
+        CTransaction tx(mtx);
+        PrecomputedTransactionData txdata(tx);
+        QuantumTransactionSignatureChecker<CTransaction> checker(&tx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         // Should pass with SCRIPT_VERIFY_QUANTUM_SIGS
@@ -313,9 +375,13 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         CScript scriptPubKey;
         scriptPubKey << OP_0 << std::vector<unsigned char>(script_hash.begin(), script_hash.end());
         
-        // Create a dummy transaction to sign
+        // Create a dummy transaction to sign with proper inputs
         CMutableTransaction mtx;
+        mtx.version = 2;  // Witness transactions should be version 2
         mtx.vin.resize(1);
+        mtx.vin[0].prevout.hash = Txid::FromHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").value();
+        mtx.vin[0].prevout.n = 0;
+        mtx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
         mtx.vout.resize(1);
         mtx.vout[0].nValue = 100000000; // 1 BTC
         
@@ -331,8 +397,9 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
         
         // Verify witness script execution passes with quantum flags
-        PrecomputedTransactionData txdata(mtx);
-        MutableTransactionSignatureChecker checker(&mtx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
+        CTransaction tx(mtx);
+        PrecomputedTransactionData txdata(tx);
+        QuantumTransactionSignatureChecker<CTransaction> checker(&tx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         // Should pass with SCRIPT_VERIFY_QUANTUM_SIGS

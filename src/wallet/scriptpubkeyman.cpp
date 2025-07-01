@@ -1428,7 +1428,52 @@ bool DescriptorScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const s
         keys->Merge(std::move(*coin_keys));
     }
 
-    return ::SignTransaction(tx, keys.get(), coins, sighash, input_errors);
+    // Store original witness data to detect if this SPKM actually improved the signing
+    std::vector<CScriptWitness> original_witnesses;
+    original_witnesses.reserve(tx.vin.size());
+    for (const auto& input : tx.vin) {
+        original_witnesses.push_back(input.scriptWitness);
+    }
+
+    bool result = ::SignTransaction(tx, keys.get(), coins, sighash, input_errors);
+    
+    // Check if we actually made any progress
+    bool made_progress = false;
+    for (size_t i = 0; i < tx.vin.size(); ++i) {
+        // Check if this input's witness improved (more elements or went from empty to non-empty)
+        size_t original_size = original_witnesses[i].stack.size();
+        size_t new_size = tx.vin[i].scriptWitness.stack.size();
+        
+        if (tx.vin[i].scriptWitness.stack != original_witnesses[i].stack) {
+            // Consider it progress only if:
+            // 1. We added more elements to the witness stack, OR
+            // 2. We went from empty to non-empty
+            if (new_size > original_size || (original_size == 0 && new_size > 0)) {
+                made_progress = true;
+                LogPrintf("[QUANTUM] SPKM %s made progress on input %d, witness stack size: %d -> %d\n",
+                         m_wallet_descriptor.descriptor->ToString().substr(0, 20), i,
+                         original_size, new_size);
+            } else {
+                // We reduced the witness stack size - this is NOT progress!
+                LogPrintf("[QUANTUM] SPKM %s REDUCED witness stack on input %d from %d -> %d elements! Not progress!\n",
+                         m_wallet_descriptor.descriptor->ToString().substr(0, 20), i,
+                         original_size, new_size);
+            }
+            break;
+        }
+    }
+    
+    // If we didn't make progress, restore original witness data
+    // This prevents SPKMs that can't sign from corrupting valid witness data
+    if (!made_progress) {
+        LogPrintf("[QUANTUM] SPKM %s made no progress, restoring original witness data\n",
+                 m_wallet_descriptor.descriptor->ToString().substr(0, 20));
+        for (size_t i = 0; i < tx.vin.size(); ++i) {
+            tx.vin[i].scriptWitness = original_witnesses[i];
+        }
+    }
+    
+    return result;
 }
 
 SigningResult DescriptorScriptPubKeyMan::SignMessage(const std::string& message, const CTxDestination& dest, std::string& str_sig) const

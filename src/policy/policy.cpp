@@ -296,14 +296,62 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
 
         // Check P2WSH standard limits
         if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-            if (tx.vin[i].scriptWitness.stack.back().size() > MAX_STANDARD_P2WSH_SCRIPT_SIZE)
-                return false;
-            size_t sizeWitnessStack = tx.vin[i].scriptWitness.stack.size() - 1;
-            if (sizeWitnessStack > MAX_STANDARD_P2WSH_STACK_ITEMS)
-                return false;
-            for (unsigned int j = 0; j < sizeWitnessStack; j++) {
-                if (tx.vin[i].scriptWitness.stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
+            // Check if this might be a quantum witness script
+            bool is_quantum = false;
+            size_t witness_script_size = tx.vin[i].scriptWitness.stack.back().size();
+            
+            // Check the witness script (last element) for quantum opcodes
+            if (!tx.vin[i].scriptWitness.stack.empty()) {
+                const auto& witness_script = tx.vin[i].scriptWitness.stack.back();
+                if (witness_script.size() >= 2) {
+                    // Look for quantum opcodes in the witness script
+                    CScript script(witness_script.begin(), witness_script.end());
+                    CScript::const_iterator pc = script.begin();
+                    opcodetype opcode;
+                    std::vector<unsigned char> vch;
+                    
+                    // Get pubkey
+                    if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
+                        // Get opcode
+                        if (script.GetOp(pc, opcode) && 
+                            (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) &&
+                            pc == script.end()) {
+                            is_quantum = true;
+                        }
+                    }
+                }
+            }
+            
+            if (is_quantum) {
+                // For quantum witness scripts, allow larger sizes
+                // Quantum pubkeys can be up to 2KB (ML-DSA) or 20KB (SLH-DSA)
+                // Plus overhead for script structure
+                static constexpr unsigned int MAX_STANDARD_QUANTUM_WITNESS_SCRIPT_SIZE = 25000;
+                if (witness_script_size > MAX_STANDARD_QUANTUM_WITNESS_SCRIPT_SIZE)
                     return false;
+                
+                // For quantum signatures, allow larger stack items
+                // ML-DSA signatures are ~3.3KB, SLH-DSA signatures are ~35KB
+                size_t sizeWitnessStack = tx.vin[i].scriptWitness.stack.size() - 1;
+                if (sizeWitnessStack > MAX_STANDARD_P2WSH_STACK_ITEMS)
+                    return false;
+                
+                for (unsigned int j = 0; j < sizeWitnessStack; j++) {
+                    // Allow quantum-sized stack items for signatures
+                    if (tx.vin[i].scriptWitness.stack[j].size() > quantum::MAX_STANDARD_QUANTUM_SIG_SIZE)
+                        return false;
+                }
+            } else {
+                // Standard non-quantum P2WSH limits
+                if (witness_script_size > MAX_STANDARD_P2WSH_SCRIPT_SIZE)
+                    return false;
+                size_t sizeWitnessStack = tx.vin[i].scriptWitness.stack.size() - 1;
+                if (sizeWitnessStack > MAX_STANDARD_P2WSH_STACK_ITEMS)
+                    return false;
+                for (unsigned int j = 0; j < sizeWitnessStack; j++) {
+                    if (tx.vin[i].scriptWitness.stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
+                        return false;
+                }
             }
         }
 

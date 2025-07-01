@@ -321,6 +321,9 @@ public:
 
 static bool EvalChecksigQuantum(const valtype& vchSig, const valtype& vchPubKey, opcodetype opcode, CScript::const_iterator pbegincodehash, CScript::const_iterator pend, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
+    LogPrintf("[QUANTUM] EvalChecksigQuantum called: opcode=%d, sig_size=%d, pubkey_size=%d\n",
+             (int)opcode, vchSig.size(), vchPubKey.size());
+    
     // Determine expected key type from opcode
     quantum::KeyType expectedKeyType;
     if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIGVERIFY_ML_DSA) {
@@ -328,12 +331,14 @@ static bool EvalChecksigQuantum(const valtype& vchSig, const valtype& vchPubKey,
     } else if (opcode == OP_CHECKSIG_SLH_DSA || opcode == OP_CHECKSIGVERIFY_SLH_DSA) {
         expectedKeyType = quantum::KeyType::SLH_DSA_192F;
     } else {
+        LogPrintf("[QUANTUM] Invalid opcode for quantum signature\n");
         if (serror) *serror = SCRIPT_ERR_UNKNOWN_ERROR;
         return false;
     }
     
     // Check signature format
     if (vchSig.empty()) {
+        LogPrintf("[QUANTUM] Empty signature\n");
         if (serror) *serror = SCRIPT_ERR_SIG_DER;
         return false;
     }
@@ -341,9 +346,11 @@ static bool EvalChecksigQuantum(const valtype& vchSig, const valtype& vchPubKey,
     // Create quantum public key
     quantum::CQuantumPubKey qPubKey(expectedKeyType, vchPubKey);
     if (!qPubKey.IsValid()) {
+        LogPrintf("[QUANTUM] Invalid quantum public key\n");
         if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
         return false;
     }
+    LogPrintf("[QUANTUM] Created valid quantum public key\n");
 
     // Create a script from the current position  
     CScript scriptCode(pbegincodehash, pend);
@@ -353,9 +360,11 @@ static bool EvalChecksigQuantum(const valtype& vchSig, const valtype& vchPubKey,
                        quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
     
     // Use the signature checker to verify
+    LogPrintf("[QUANTUM] Calling CheckQuantumSignature with scheme_id=%d\n", (int)scheme_id);
     bool fSuccess = checker.CheckQuantumSignature(vchSig, vchPubKey, 
                                                  scriptCode, sigversion, scheme_id);
     
+    LogPrintf("[QUANTUM] CheckQuantumSignature returned: %d\n", fSuccess);
     if (!fSuccess && serror) {
         *serror = SCRIPT_ERR_SIG_NULLFAIL;
     }
@@ -496,10 +505,37 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
             if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE) {
                 // Allow quantum signatures and pubkeys when SCRIPT_VERIFY_QUANTUM_SIGS is set
                 bool allow_quantum = (flags & SCRIPT_VERIFY_QUANTUM_SIGS) != 0;
-                if (!allow_quantum || 
-                    (vchPushValue.size() != 3309 && vchPushValue.size() != 3310 &&     // ML-DSA sigs
-                     vchPushValue.size() != 35664 && vchPushValue.size() != 35665 &&   // SLH-DSA sigs
-                     vchPushValue.size() != 1952 && vchPushValue.size() != 48)) {      // ML-DSA/SLH-DSA pubkeys
+                bool is_allowed = false;
+                
+                if (allow_quantum) {
+                    // Check for known quantum signature/pubkey sizes
+                    if (vchPushValue.size() == 3309 || vchPushValue.size() == 3310 ||     // ML-DSA sigs
+                        vchPushValue.size() == 35664 || vchPushValue.size() == 35665 ||   // SLH-DSA sigs
+                        vchPushValue.size() == 1952 || vchPushValue.size() == 48) {       // ML-DSA/SLH-DSA pubkeys
+                        is_allowed = true;
+                    }
+                    // Also check if this could be a quantum witness script
+                    else if (vchPushValue.size() > 1950 && vchPushValue.size() < 25000) {
+                        // Check if it's a valid quantum witness script
+                        CScript script(vchPushValue.begin(), vchPushValue.end());
+                        CScript::const_iterator pc = script.begin();
+                        opcodetype tmp_opcode;
+                        std::vector<unsigned char> vch;
+                        
+                        // Get pubkey
+                        if (script.GetOp(pc, tmp_opcode, vch) && !vch.empty()) {
+                            // Get opcode
+                            if (script.GetOp(pc, tmp_opcode) && 
+                                (tmp_opcode == OP_CHECKSIG_ML_DSA || tmp_opcode == OP_CHECKSIG_SLH_DSA) &&
+                                pc == script.end()) {
+                                // This is a valid quantum witness script
+                                is_allowed = true;
+                            }
+                        }
+                    }
+                }
+                
+                if (!is_allowed) {
                     return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
                 }
             }
@@ -535,6 +571,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
             if (fExec && 0 <= opcode && opcode <= OP_PUSHDATA4) {
                 if (fRequireMinimal && !CheckMinimalPush(vchPushValue, opcode)) {
                     return set_error(serror, SCRIPT_ERR_MINIMALDATA);
+                }
+                if (vchPushValue.size() > 100) {
+                    LogPrintf("DEBUG: Pushing large value to stack, size=%d\n", vchPushValue.size());
                 }
                 stack.push_back(vchPushValue);
             } else if (fExec || (OP_IF <= opcode && opcode <= OP_ENDIF))
@@ -678,7 +717,10 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     valtype& vchPubKey = stacktop(-1);
 
                     // Verify quantum signature
+                    LogPrintf("[QUANTUM] About to verify quantum signature: opcode=%d, sig_size=%d, pubkey_size=%d\n", 
+                             (int)opcode, vchSig.size(), vchPubKey.size());
                     bool fSuccess = EvalChecksigQuantum(vchSig, vchPubKey, opcode, pbegincodehash, pend, flags, checker, sigversion, serror);
+                    LogPrintf("[QUANTUM] Quantum signature verification result: %d\n", fSuccess);
                     if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size()) {
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                     }
@@ -1796,6 +1838,66 @@ bool GenericTransactionSignatureChecker<T>::CheckSchnorrSignature(std::span<cons
 }
 
 template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckQuantumSignature(
+    const std::vector<unsigned char>& vchSig,
+    const std::vector<unsigned char>& vchPubKey,
+    const CScript& scriptCode,
+    SigVersion sigversion,
+    uint8_t scheme_id) const
+{
+    LogPrintf("[QUANTUM] GenericTransactionSignatureChecker::CheckQuantumSignature called\n");
+    
+    // Determine key type from scheme ID
+    quantum::KeyType keyType;
+    if (scheme_id == quantum::SCHEME_ML_DSA_65) {
+        keyType = quantum::KeyType::ML_DSA_65;
+    } else if (scheme_id == quantum::SCHEME_SLH_DSA_192F) {
+        keyType = quantum::KeyType::SLH_DSA_192F;
+    } else {
+        LogPrintf("[QUANTUM] Invalid scheme_id: %d\n", (int)scheme_id);
+        return false;
+    }
+    
+    // Create quantum public key
+    quantum::CQuantumPubKey pubkey(keyType, vchPubKey);
+    if (!pubkey.IsValid()) {
+        LogPrintf("[QUANTUM] Invalid quantum pubkey\n");
+        return false;
+    }
+    
+    // Extract hash type from signature (last byte)
+    if (vchSig.empty()) {
+        LogPrintf("[QUANTUM] Empty signature\n");
+        return false;
+    }
+    
+    std::vector<unsigned char> vchSigNoHashType(vchSig);
+    int nHashType = SIGHASH_ALL;
+    
+    if (!vchSigNoHashType.empty()) {
+        nHashType = vchSigNoHashType.back();
+        vchSigNoHashType.pop_back();
+        LogPrintf("[QUANTUM] Hash type: %d, sig size after removing hashtype: %d\n", nHashType, vchSigNoHashType.size());
+    }
+    
+    // Witness sighashes need the amount
+    if (sigversion == SigVersion::WITNESS_V0 && amount < 0) {
+        LogPrintf("[QUANTUM] Missing amount for witness signature\n");
+        return HandleMissingData(m_mdb);
+    }
+    
+    // Compute the signature hash
+    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+    LogPrintf("[QUANTUM] Computed sighash: %s\n", sighash.ToString());
+    
+    // Verify the signature
+    bool result = quantum::CQuantumKey::Verify(sighash, vchSigNoHashType, pubkey);
+    LogPrintf("[QUANTUM] Verification result: %d\n", result);
+    
+    return result;
+}
+
+template <class T>
 bool GenericTransactionSignatureChecker<T>::CheckLockTime(const CScriptNum& nLockTime) const
 {
     // There are two kinds of nLockTime: lock-by-blockheight
@@ -1920,6 +2022,29 @@ static bool ExecuteWitnessScript(const std::span<const valtype>& stack_span, con
                 // Allow quantum signatures and pubkeys
                 continue;
             }
+            
+            // Also check if this could be a quantum witness script
+            // Quantum witness scripts contain a pubkey + OP_CHECKSIG_ML_DSA/SLH_DSA
+            // They can be up to ~20KB for SLH-DSA pubkeys
+            if (allow_quantum && elem.size() > 1950 && elem.size() < 25000) {
+                // Check if it's a valid quantum witness script
+                CScript script(elem.begin(), elem.end());
+                CScript::const_iterator pc = script.begin();
+                opcodetype opcode;
+                std::vector<unsigned char> vch;
+                
+                // Get pubkey
+                if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
+                    // Get opcode
+                    if (script.GetOp(pc, opcode) && 
+                        (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) &&
+                        pc == script.end()) {
+                        // This is a valid quantum witness script
+                        continue;
+                    }
+                }
+            }
+            
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
         }
     }
