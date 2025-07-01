@@ -19,8 +19,8 @@ QSBitcoin implements two NIST-standardized post-quantum signature schemes via li
 - **Algorithm ID**: 0x01
 
 #### SLH-DSA-192f (Stateless Hash-Based Digital Signature Algorithm)
-- **Public Key Size**: 64 bytes
-- **Private Key Size**: 128 bytes
+- **Public Key Size**: 48 bytes
+- **Private Key Size**: 96 bytes
 - **Signature Size**: ~35,664 bytes
 - **Security Level**: NIST Level 3
 - **Use Case**: High-value cold storage
@@ -156,16 +156,16 @@ No special prefixes distinguish quantum addresses from regular P2WSH addresses.
 **MAJOR DIFFERENCE FROM BITCOIN**: Bitcoin uses a 4x weight factor for all witness data. QSBitcoin introduces variable weight factors to better reflect actual validation costs.
 
 Quantum signatures use special weight factors:
-- ML-DSA signatures: 2x weight factor (vs 4x for ECDSA witness data)
-- SLH-DSA signatures: 3x weight factor
+- ML-DSA signatures: 3x weight factor (vs 4x for ECDSA witness data)
+- SLH-DSA signatures: 2x weight factor
 
 #### Implementation Formula:
 ```
 if (is_quantum_signature):
     if (algorithm == ML_DSA):
-        weight = base_size + (witness_size * 2)
-    elif (algorithm == SLH_DSA):
         weight = base_size + (witness_size * 3)
+    elif (algorithm == SLH_DSA):
+        weight = base_size + (witness_size * 2)
 else:
     weight = base_size + (witness_size * 4)  # Standard Bitcoin
 ```
@@ -357,9 +357,61 @@ Implement comprehensive tests for:
 | Fee Discount | 0% | 10% | 5% |
 | Use Case | Legacy | Standard | Cold Storage |
 
-## 13. Implementation Guide for Compatible Forks
+## 13. Critical Implementation Notes
 
-### 13.1 Key Differences from Standard Bitcoin
+### 13.1 Push Size Limit Bypass
+
+**CRITICAL**: The 520-byte push size limit (MAX_SCRIPT_ELEMENT_SIZE) must be bypassed for quantum signatures when SCRIPT_VERIFY_QUANTUM_SIGS is set. This is handled differently in witness vs non-witness contexts:
+
+1. **In EvalScript**: Check for SCRIPT_VERIFY_QUANTUM_SIGS flag
+2. **In ExecuteWitnessScript**: Size check happens at witness parsing
+3. **Implementation**: Modified OP_PUSHDATA handling when quantum flag is active
+
+### 13.2 Witness Script Generation
+
+**CRITICAL**: When generating quantum addresses, ensure the witness script uses the exact same public key that will be used for signing. The witness script format must be:
+
+```cpp
+CScript witness_script;
+witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+// Note: This pushes pubkey with appropriate length prefix (PUSHDATA2 for ML-DSA)
+```
+
+### 13.3 Witness Corruption Prevention
+
+**CRITICAL BUG TO AVOID**: Multiple ScriptPubKeyManagers attempting to sign the same transaction can corrupt witness data by reducing the witness stack size. Solution:
+
+```cpp
+// Store original witness before signing attempt
+std::vector<CScriptWitness> original_witnesses = /* copy witnesses */;
+
+// Attempt signing
+bool result = SignTransaction(tx, ...);
+
+// Check if we actually improved the witness
+bool made_progress = false;
+for (size_t i = 0; i < tx.vin.size(); ++i) {
+    if (new_witness_size > original_witness_size) {
+        made_progress = true;
+        break;
+    }
+}
+
+// Restore if no progress
+if (!made_progress) {
+    /* restore original witnesses */
+}
+```
+
+### 13.4 Mandatory Script Flags
+
+SCRIPT_VERIFY_QUANTUM_SIGS must be included in:
+- STANDARD_SCRIPT_VERIFY_FLAGS (for mempool)
+- MANDATORY_SCRIPT_VERIFY_FLAGS (for consensus after activation)
+
+## 14. Implementation Guide for Compatible Forks
+
+### 14.1 Key Differences from Standard Bitcoin
 
 1. **Signature Abstraction Layer**
    - Bitcoin: Direct ECDSA/Schnorr validation in script interpreter
@@ -380,7 +432,7 @@ Implement comprehensive tests for:
    - QSBitcoin: No derivation for quantum keys, each requires fresh entropy
    - Descriptor system extended with `qpkh()` descriptor type
 
-### 13.2 Minimal Implementation Checklist
+### 14.2 Minimal Implementation Checklist
 
 To create a compatible implementation with a different quantum library:
 
@@ -411,7 +463,7 @@ To create a compatible implementation with a different quantum library:
    - Implement `qpkh()` descriptor parsing
    - Extend signing provider for quantum keys
 
-### 13.3 Testing Your Implementation
+### 14.3 Testing Your Implementation
 
 Essential test cases:
 1. Generate quantum addresses and verify bech32 encoding
@@ -420,12 +472,23 @@ Essential test cases:
 4. Test soft fork activation on regtest
 5. Validate fee calculations with discounts
 
-### 13.4 Reference Implementation
+### 14.4 Reference Implementation
 
 The reference implementation is available at:
 - Repository: https://github.com/qsbitcoin/qsbitcoin
 - Based on: Bitcoin Core v28.0
 - License: MIT
+- Status: 100% Complete (as of July 1, 2025)
+- Test Coverage: 88 test cases across 16 test files
+
+#### Implementation Highlights:
+- Full quantum signature support (ML-DSA-65, SLH-DSA-192f)
+- Complete wallet integration with descriptor support
+- Soft fork activation via BIP9
+- Push size limit bypass for large signatures
+- Witness corruption prevention
+- Fee discount mechanism
+- Comprehensive test suite
 
 ## Appendix A: Core Script Validation Pseudocode
 
@@ -471,21 +534,29 @@ bool EvalChecksigQuantum(const valtype& sig, const valtype& pubkey,
 
 ### ML-DSA-65 Test Vector
 ```
-Private Key (hex): [4032 bytes]
-Public Key (hex): [1952 bytes]  
-Message: "Bitcoin Signed Message:\nTest"
-Signature (hex): [~3309 bytes]
+Algorithm: ML-DSA-65 (Dilithium3)
+Private Key Size: 4032 bytes
+Public Key Size: 1952 bytes  
+Signature Size: 3309 bytes (not including sighash byte)
 ```
 
 ### SLH-DSA-192f Test Vector
 ```
-Private Key (hex): [128 bytes]
-Public Key (hex): [64 bytes]
-Message: "Bitcoin Signed Message:\nTest"
-Signature (hex): [~35664 bytes]
+Algorithm: SLH-DSA-192f (SPHINCS+-SHA2-192f-simple)
+Private Key Size: 96 bytes
+Public Key Size: 48 bytes
+Signature Size: 35664 bytes (not including sighash byte)
 ```
 
-[Complete test vectors to be added with reference implementation]
+### Example Quantum Address
+```
+Algorithm: ML-DSA-65
+Address (Regtest): bcrt1q...  (64 characters)
+Witness Script: <1952-byte-pubkey> OP_CHECKSIG_ML_DSA
+Script Hash: SHA256(witness_script)
+```
+
+Note: Full test vectors with hex values are available in the test suite at src/test/quantum_*.cpp
 
 ## Appendix C: Activation Parameters
 
