@@ -7,11 +7,41 @@
 #include <crypto/common.h>
 #include <random.h>
 #include <oqs/oqs.h>
+#include <oqs/rand.h>
 
 #include <cstring>
 #include <stdexcept>
 
 namespace quantum {
+
+// Forward declaration of Bitcoin RNG callback
+static void BitcoinRandBytes(uint8_t* buffer, size_t size);
+
+// Static initialization helper
+static struct OQSRNGInitializer {
+    OQSRNGInitializer() {
+        // Set Bitcoin's cryptographically secure RNG as the source for liboqs
+        OQS_randombytes_custom_algorithm(&BitcoinRandBytes);
+    }
+} g_oqs_rng_initializer;
+
+// Bitcoin RNG callback for liboqs
+static void BitcoinRandBytes(uint8_t* buffer, size_t size)
+{
+    // Use Bitcoin Core's cryptographically secure random number generator
+    // This provides the same entropy sources as used for ECDSA keys
+    
+    // GetStrongRandBytes has a limit of 32 bytes per call, so we need to
+    // call it multiple times for larger requests (e.g., ML-DSA-65 needs 4032 bytes)
+    constexpr size_t MAX_BYTES_PER_CALL = 32;
+    size_t offset = 0;
+    
+    while (offset < size) {
+        size_t bytes_to_get = std::min(size - offset, MAX_BYTES_PER_CALL);
+        GetStrongRandBytes(std::span<unsigned char>(buffer + offset, bytes_to_get));
+        offset += bytes_to_get;
+    }
+}
 
 OQSContext::OQSContext(const std::string& algorithm_name)
     : m_sig(nullptr), m_algorithm_name(algorithm_name)

@@ -8,7 +8,15 @@ QSBitcoin is a quantum-safe implementation of Bitcoin Core that adds support for
 
 ### 1.1 Signature Algorithms
 
-QSBitcoin implements two NIST-standardized post-quantum signature schemes via liboqs v0.12.0+:
+QSBitcoin implements three signature schemes, including legacy ECDSA for compatibility and two NIST-standardized post-quantum signature schemes via liboqs v0.12.0+:
+
+#### ECDSA (Elliptic Curve Digital Signature Algorithm)
+- **Public Key Size**: 33 bytes (compressed) or 65 bytes (uncompressed)
+- **Private Key Size**: 32 bytes
+- **Signature Size**: ~71 bytes (DER-encoded)
+- **Security Level**: 128-bit classical, vulnerable to quantum
+- **Use Case**: Legacy compatibility, migration period
+- **Algorithm ID**: 0x01
 
 #### ML-DSA-65 (Module-Lattice Digital Signature Algorithm)
 - **Public Key Size**: 1952 bytes
@@ -16,7 +24,7 @@ QSBitcoin implements two NIST-standardized post-quantum signature schemes via li
 - **Signature Size**: ~3309 bytes
 - **Security Level**: NIST Level 3
 - **Use Case**: Standard transactions (99% of cases)
-- **Algorithm ID**: 0x01
+- **Algorithm ID**: 0x02
 
 #### SLH-DSA-192f (Stateless Hash-Based Digital Signature Algorithm)
 - **Public Key Size**: 48 bytes
@@ -24,7 +32,7 @@ QSBitcoin implements two NIST-standardized post-quantum signature schemes via li
 - **Signature Size**: ~35,664 bytes
 - **Security Level**: NIST Level 3
 - **Use Case**: High-value cold storage
-- **Algorithm ID**: 0x02
+- **Algorithm ID**: 0x03
 
 ### 1.2 Key Structure
 
@@ -32,7 +40,7 @@ QSBitcoin implements two NIST-standardized post-quantum signature schemes via li
 
 ```cpp
 class CQuantumKey {
-    uint8_t algorithm_id;     // 0x01 (ML-DSA) or 0x02 (SLH-DSA)
+    uint8_t algorithm_id;     // 0x01 (ECDSA), 0x02 (ML-DSA) or 0x03 (SLH-DSA)
     vector<uint8_t> key_data; // Private key material
     // Non-copyable, move-only semantics
 };
@@ -48,6 +56,7 @@ class CQuantumPubKey {
 2. **No Derivation**: Cannot derive child keys - each address needs fresh randomness
 3. **Memory Safety**: Must securely erase private key data on destruction
 4. **Size Handling**: Keys are much larger than ECDSA (4KB private, 2KB public for ML-DSA)
+5. **RNG Integration**: Quantum keys use Bitcoin Core's cryptographically secure RNG (GetStrongRandBytes) via custom liboqs callback
 
 ### 1.3 Signature Scheme Interface
 
@@ -65,9 +74,10 @@ class ISignatureScheme {
 
 #### Implementation Notes for Other Quantum Libraries:
 1. **Library Independence**: The ISignatureScheme interface allows you to use any quantum crypto library (not just liboqs). You only need to implement this interface for your chosen algorithms.
-2. **Algorithm IDs**: Must use 0x01 for ML-DSA and 0x02 for SLH-DSA to maintain compatibility
+2. **Algorithm IDs**: Must use 0x01 for ECDSA, 0x02 for ML-DSA, and 0x03 for SLH-DSA to maintain compatibility
 3. **Hash Input**: The `hash` parameter is always a 256-bit message digest (Bitcoin transaction hash)
 4. **Signature Format**: Your implementation must produce signatures in the exact binary format expected by the algorithms
+5. **RNG Integration**: Configure your quantum library to use Bitcoin Core's GetStrongRandBytes() for key generation to ensure consistent entropy quality across all signature types
 
 ## 2. Script System
 
@@ -106,7 +116,7 @@ Quantum signatures in witness data follow this format:
 ```
 
 #### Detailed Format Specification:
-- **scheme_id**: Single byte (0x01 for ML-DSA, 0x02 for SLH-DSA)
+- **scheme_id**: Single byte (0x01 for ECDSA, 0x02 for ML-DSA, 0x03 for SLH-DSA)
 - **sig_len**: Variable-length integer encoding signature size
 - **signature**: Raw signature bytes from quantum algorithm
 - **pubkey_len**: Variable-length integer encoding public key size  
@@ -307,6 +317,26 @@ Due to larger quantum signatures, the following limits apply:
 - liboqs v0.12.0+ (only ML-DSA and SLH-DSA algorithms required)
 - No additional external dependencies
 
+#### RNG Configuration
+
+QSBitcoin configures liboqs to use Bitcoin Core's RNG:
+```cpp
+// Custom RNG callback for liboqs
+static void BitcoinRandBytes(uint8_t* buffer, size_t size) {
+    // GetStrongRandBytes has 32-byte limit, call multiple times for larger requests
+    constexpr size_t MAX_BYTES_PER_CALL = 32;
+    size_t offset = 0;
+    while (offset < size) {
+        size_t bytes_to_get = std::min(size - offset, MAX_BYTES_PER_CALL);
+        GetStrongRandBytes(std::span<unsigned char>(buffer + offset, bytes_to_get));
+        offset += bytes_to_get;
+    }
+}
+
+// Set during initialization
+OQS_randombytes_custom_algorithm(&BitcoinRandBytes);
+```
+
 ### 10.2 Build Configuration
 
 ```cmake
@@ -333,6 +363,7 @@ Implement comprehensive tests for:
 - Quantum private keys are non-copyable (move-only semantics)
 - Keys must be securely erased from memory after use
 - No key derivation - each address needs unique entropy
+- All quantum keys use Bitcoin Core's unified RNG system (GetStrongRandBytes) ensuring the same entropy quality as ECDSA keys
 
 ### 11.2 Signature Malleability
 
@@ -350,6 +381,7 @@ Implement comprehensive tests for:
 
 | Feature | ECDSA | ML-DSA | SLH-DSA |
 |---------|-------|---------|----------|
+| Algorithm ID | 0x01 | 0x02 | 0x03 |
 | Address Format | P2PKH/P2WPKH | P2WSH | P2WSH |
 | Signature Size | 71 bytes | ~3.3KB | ~35KB |
 | HD Derivation | Yes | No | No |
@@ -478,7 +510,7 @@ The reference implementation is available at:
 - Repository: https://github.com/qsbitcoin/qsbitcoin
 - Based on: Bitcoin Core v28.0
 - License: MIT
-- Status: 100% Complete (as of July 1, 2025)
+- Status: 100% Complete (as of July 2, 2025)
 - Test Coverage: 88 test cases across 16 test files
 
 #### Implementation Highlights:
@@ -488,6 +520,7 @@ The reference implementation is available at:
 - Push size limit bypass for large signatures
 - Witness corruption prevention
 - Fee discount mechanism
+- Unified RNG system - quantum keys use Bitcoin Core's GetStrongRandBytes()
 - Comprehensive test suite
 
 ## Appendix A: Core Script Validation Pseudocode
@@ -502,8 +535,8 @@ bool EvalChecksigQuantum(const valtype& sig, const valtype& pubkey,
     uint8_t scheme_id = sig[0];
     
     // 2. Verify scheme matches opcode
-    if ((scheme == MLDSA && scheme_id != 0x01) ||
-        (scheme == SLHDSA && scheme_id != 0x02)) {
+    if ((scheme == MLDSA && scheme_id != 0x02) ||
+        (scheme == SLHDSA && scheme_id != 0x03)) {
         return false;
     }
     
@@ -519,9 +552,13 @@ bool EvalChecksigQuantum(const valtype& sig, const valtype& pubkey,
     // 4. Create appropriate signature scheme
     unique_ptr<ISignatureScheme> signer;
     if (scheme_id == 0x01) {
+        signer = make_unique<ECDSAScheme>();
+    } else if (scheme_id == 0x02) {
         signer = make_unique<MLDSAScheme>();
-    } else {
+    } else if (scheme_id == 0x03) {
         signer = make_unique<SLHDSAScheme>();
+    } else {
+        return false;
     }
     
     // 5. Verify signature

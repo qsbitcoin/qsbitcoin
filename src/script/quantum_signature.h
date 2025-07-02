@@ -16,13 +16,13 @@ namespace quantum {
 
 /** Signature scheme identifiers for extensibility */
 enum SignatureSchemeID : uint8_t {
-    SCHEME_ECDSA = 0x00,         // Legacy ECDSA signatures
-    SCHEME_ML_DSA_65 = 0x01,     // ML-DSA-65 (Dilithium3)
-    SCHEME_SLH_DSA_192F = 0x02,  // SLH-DSA-192f (SPHINCS+)
+    SCHEME_ECDSA = 0x01,         // Legacy ECDSA signatures
+    SCHEME_ML_DSA_65 = 0x02,     // ML-DSA-65 (Dilithium3)
+    SCHEME_SLH_DSA_192F = 0x03,  // SLH-DSA-192f (SPHINCS+)
     // Reserved for future algorithms
-    SCHEME_ML_DSA_87 = 0x03,     // Future: ML-DSA-87
-    SCHEME_FALCON_512 = 0x04,    // Future: Falcon-512
-    SCHEME_FALCON_1024 = 0x05,   // Future: Falcon-1024
+    SCHEME_ML_DSA_87 = 0x04,     // Future: ML-DSA-87
+    SCHEME_FALCON_512 = 0x05,    // Future: Falcon-512
+    SCHEME_FALCON_1024 = 0x06,   // Future: Falcon-1024
     // ... extensible up to 0xFF
 };
 

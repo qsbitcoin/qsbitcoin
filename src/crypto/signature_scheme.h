@@ -20,7 +20,7 @@ namespace quantum {
 enum class SignatureSchemeId : uint8_t {
     ECDSA   = 0x01,  // Legacy ECDSA
     ML_DSA  = 0x02,  // ML-DSA-65 (Dilithium)
-    SLH_DSA = 0x04,  // SLH-DSA-192f (SPHINCS+)
+    SLH_DSA = 0x03,  // SLH-DSA-192f (SPHINCS+)
 };
 
 /**

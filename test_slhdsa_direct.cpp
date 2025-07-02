@@ -31,8 +31,9 @@ constexpr size_t SLH_DSA_SIGNATURE_SIZE = 35664;  // Actual size from test
 constexpr size_t SLH_DSA_EXPECTED_SIZE = 49856;   // What Bitcoin might expect
 
 // Quantum scheme IDs
-constexpr uint8_t SCHEME_ID_ML_DSA = 0x01;
-constexpr uint8_t SCHEME_ID_SLH_DSA = 0x02;
+constexpr uint8_t SCHEME_ID_ECDSA = 0x01;
+constexpr uint8_t SCHEME_ID_ML_DSA = 0x02;
+constexpr uint8_t SCHEME_ID_SLH_DSA = 0x03;
 
 void print_hex(const std::string& label, const uint8_t* data, size_t len) {
     std::cout << label << " (" << len << " bytes): ";

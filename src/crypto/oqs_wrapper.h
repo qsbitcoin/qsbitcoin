@@ -22,6 +22,11 @@ namespace quantum {
 /**
  * RAII wrapper for OQS_SIG structure
  * Ensures proper cleanup and provides thread-safe access
+ * 
+ * Note: This wrapper automatically configures liboqs to use Bitcoin Core's
+ * cryptographically secure RNG (GetStrongRandBytes) instead of the default
+ * system RNG. This ensures quantum keys benefit from the same entropy
+ * sources as ECDSA keys.
  */
 class OQSContext {
 public:
