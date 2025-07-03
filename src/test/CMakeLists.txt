@@ -43,7 +43,6 @@ add_executable(test_bitcoin
   quantum_address_tests.cpp
   quantum_address_generation_test.cpp
   quantum_activation_tests.cpp
-  quantum_crash_test.cpp
   quantum_simple_descriptor_test.cpp
   quantum_transaction_tests.cpp
   qs_signature_checker_tests.cpp
@@ -56,8 +55,8 @@ add_executable(test_bitcoin
   quantum_witness_corruption_tests.cpp
   quantum_push_size_tests.cpp
   quantum_comprehensive_tests.cpp
-  debug_quantum_push.cpp
-  quantum_debug_test.cpp
+  quantum_witness_validation_test.cpp
+  quantum_policy_edge_cases_test.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
   descriptor_tests.cpp
@@ -237,4 +236,3 @@ endfunction()
 add_all_test_targets()
 
 install_binary_component(test_bitcoin)
-add_test(NAME test_quantum_debug COMMAND test_bitcoin --run_test=quantum_debug_test)

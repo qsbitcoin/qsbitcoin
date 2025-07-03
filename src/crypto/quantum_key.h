@@ -21,6 +21,12 @@ namespace quantum {
 using secure_vector = std::vector<unsigned char, secure_allocator<unsigned char>>;
 
 /**
+ * IMPORTANT: Quantum keys do not support HD (Hierarchical Deterministic) derivation.
+ * BIP32 relies on elliptic curve mathematics which is not applicable to hash-based
+ * or lattice-based quantum signatures. Each quantum key must be generated independently.
+ */
+
+/**
  * Key type identifiers for quantum-safe algorithms
  */
 enum class KeyType : uint8_t {

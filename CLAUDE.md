@@ -103,9 +103,10 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - `liboqs/` - Integrated OQS library (ML-DSA, SLH-DSA only)
 
 **Script System** (`src/script/`):
-- Quantum opcodes: OP_CHECKSIG_ML_DSA (0xb3), OP_CHECKSIG_SLH_DSA (0xb4)
+- Quantum opcodes: OP_CHECKSIG_EX (0xb3), OP_CHECKSIGVERIFY_EX (0xb4)
 - SCRIPT_VERIFY_QUANTUM_SIGS flag (bit 21)
 - EvalChecksigQuantum() for quantum signature verification
+- Unified opcode design with algorithm ID in signature data
 
 **Wallet** (`src/wallet/`):
 - Descriptor-based architecture with quantum descriptors (`qpkh`)
@@ -149,7 +150,7 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - **Non-copyable keys**: Use unique_ptr for CQuantumKey objects
 - **Global namespace**: Use `::quantum` to avoid wallet namespace conflicts
 - **Pubkey as IV**: Use pubkey hash as IV for deterministic encryption
-- **Script patterns**: Quantum scripts recognized by OP_CHECKSIG_ML_DSA/SLH_DSA
+- **Script patterns**: Quantum scripts recognized by OP_CHECKSIG_EX with algorithm ID prefix
 - **Weight calculations**: Special factors for quantum signatures (2x-3x vs 4x ECDSA)
 - **Activation status**: Testnet/Regtest ALWAYS_ACTIVE, Mainnet NEVER_ACTIVE
 
@@ -179,6 +180,11 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
    - **Algorithm ID Fix**: Fixed quantum signatures missing algorithm ID prefix for P2WSH transactions
      - Sign.cpp now prepends algorithm ID (0x02 for ML-DSA, 0x03 for SLH-DSA) to signatures
      - This matches what EvalChecksigQuantum expects during verification
+
+8. **Opcode Consolidation** (July 2, 2025): Unified quantum opcodes
+   - Replaced separate OP_CHECKSIG_ML_DSA/SLH_DSA with unified OP_CHECKSIG_EX
+   - Algorithm ID now included in signature data (0x02 for ML-DSA, 0x03 for SLH-DSA)
+   - Simplifies script validation and improves extensibility
 
 ### Next Critical Steps
 
@@ -275,3 +281,15 @@ sudo coredumpctl gdb bitcoind
 # Check for assertion failures in debug.log
 grep -i "assertion\|error\|fault" ~/.bitcoin/regtest/debug.log
 ```
+
+### Recent Code Quality Improvements (July 3, 2025)
+
+1. **Enum Consolidation**: Unified `SignatureSchemeID` enum
+   - Removed duplicate enum definitions
+   - Now using single `quantum::SignatureSchemeID` throughout codebase
+   - Values: `SCHEME_ECDSA` (0x01), `SCHEME_ML_DSA_65` (0x02), `SCHEME_SLH_DSA_192F` (0x03)
+
+2. **Magic Number Elimination**: Replaced hardcoded value
+   - Added `MIN_QUANTUM_SIG_SIZE_THRESHOLD` constant (100 bytes)
+   - Used for detecting quantum signatures vs ECDSA signatures
+   - Improves code maintainability and clarity

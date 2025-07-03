@@ -67,7 +67,6 @@ add_library(bitcoin_crypto STATIC EXCLUDE_FROM_ALL
   mldsa_scheme.cpp
   slhdsa_scheme.cpp
   quantum_key.cpp
-  quantum_hd.cpp
   quantum_key_io.cpp
 )
 

@@ -38,8 +38,8 @@ public:
         return ML_DSA_65_PRIVKEY_SIZE;
     }
     
-    SignatureSchemeId GetSchemeId() const override { 
-        return SignatureSchemeId::ML_DSA; 
+    SignatureSchemeID GetSchemeId() const override { 
+        return SCHEME_ML_DSA_65; 
     }
     
     std::string GetName() const override { 

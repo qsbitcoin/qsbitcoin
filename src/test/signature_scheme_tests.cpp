@@ -26,25 +26,25 @@ BOOST_AUTO_TEST_CASE(signature_registry_test)
     auto& registry = SignatureSchemeRegistry::GetInstance();
     
     // ECDSA should always be available
-    BOOST_CHECK(registry.IsSchemeRegistered(SignatureSchemeId::ECDSA));
+    BOOST_CHECK(registry.IsSchemeRegistered(SCHEME_ECDSA));
     
     // Get ECDSA scheme
-    const ISignatureScheme* ecdsa = registry.GetScheme(SignatureSchemeId::ECDSA);
+    const ISignatureScheme* ecdsa = registry.GetScheme(SCHEME_ECDSA);
     BOOST_REQUIRE(ecdsa != nullptr);
     BOOST_CHECK_EQUAL(ecdsa->GetName(), "ECDSA");
     BOOST_CHECK_EQUAL(ecdsa->IsQuantumSafe(), false);
     
     // Check if quantum schemes are registered (depends on liboqs build)
-    if (registry.IsSchemeRegistered(SignatureSchemeId::ML_DSA)) {
-        const ISignatureScheme* mldsa = registry.GetScheme(SignatureSchemeId::ML_DSA);
+    if (registry.IsSchemeRegistered(SCHEME_ML_DSA_65)) {
+        const ISignatureScheme* mldsa = registry.GetScheme(SCHEME_ML_DSA_65);
         BOOST_REQUIRE(mldsa != nullptr);
         BOOST_CHECK_EQUAL(mldsa->GetName(), "ML-DSA-65");
         BOOST_CHECK_EQUAL(mldsa->IsQuantumSafe(), true);
         BOOST_CHECK_EQUAL(mldsa->GetMaxSignatureSize(), 3309);
     }
     
-    if (registry.IsSchemeRegistered(SignatureSchemeId::SLH_DSA)) {
-        const ISignatureScheme* slhdsa = registry.GetScheme(SignatureSchemeId::SLH_DSA);
+    if (registry.IsSchemeRegistered(SCHEME_SLH_DSA_192F)) {
+        const ISignatureScheme* slhdsa = registry.GetScheme(SCHEME_SLH_DSA_192F);
         BOOST_REQUIRE(slhdsa != nullptr);
         BOOST_CHECK_EQUAL(slhdsa->GetName(), "SLH-DSA-SHA2-192f");
         BOOST_CHECK_EQUAL(slhdsa->IsQuantumSafe(), true);
@@ -54,7 +54,7 @@ BOOST_AUTO_TEST_CASE(signature_registry_test)
     // Test getting all registered schemes
     auto schemes = registry.GetRegisteredSchemes();
     BOOST_CHECK(!schemes.empty());
-    BOOST_CHECK(std::find(schemes.begin(), schemes.end(), SignatureSchemeId::ECDSA) != schemes.end());
+    BOOST_CHECK(std::find(schemes.begin(), schemes.end(), SCHEME_ECDSA) != schemes.end());
 }
 
 /**
@@ -65,7 +65,7 @@ BOOST_AUTO_TEST_CASE(ecdsa_scheme_test)
     ECDSAScheme ecdsa;
     
     // Test metadata
-    BOOST_CHECK_EQUAL(ecdsa.GetSchemeId(), SignatureSchemeId::ECDSA);
+    BOOST_CHECK_EQUAL(ecdsa.GetSchemeId(), SCHEME_ECDSA);
     BOOST_CHECK_EQUAL(ecdsa.GetName(), "ECDSA");
     BOOST_CHECK_EQUAL(ecdsa.IsQuantumSafe(), false);
     BOOST_CHECK_EQUAL(ecdsa.GetMaxSignatureSize(), 72);
@@ -136,16 +136,16 @@ BOOST_AUTO_TEST_CASE(mldsa_scheme_test)
 {
     auto& registry = SignatureSchemeRegistry::GetInstance();
     
-    if (!registry.IsSchemeRegistered(SignatureSchemeId::ML_DSA)) {
+    if (!registry.IsSchemeRegistered(SCHEME_ML_DSA_65)) {
         BOOST_TEST_MESSAGE("ML-DSA not available, skipping test");
         return;
     }
     
-    const ISignatureScheme* mldsa = registry.GetScheme(SignatureSchemeId::ML_DSA);
+    const ISignatureScheme* mldsa = registry.GetScheme(SCHEME_ML_DSA_65);
     BOOST_REQUIRE(mldsa != nullptr);
     
     // Test metadata
-    BOOST_CHECK_EQUAL(mldsa->GetSchemeId(), SignatureSchemeId::ML_DSA);
+    BOOST_CHECK_EQUAL(mldsa->GetSchemeId(), SCHEME_ML_DSA_65);
     BOOST_CHECK_EQUAL(mldsa->GetName(), "ML-DSA-65");
     BOOST_CHECK_EQUAL(mldsa->IsQuantumSafe(), true);
     BOOST_CHECK_EQUAL(mldsa->GetMaxSignatureSize(), 3309);
@@ -174,16 +174,16 @@ BOOST_AUTO_TEST_CASE(slhdsa_scheme_test)
 {
     auto& registry = SignatureSchemeRegistry::GetInstance();
     
-    if (!registry.IsSchemeRegistered(SignatureSchemeId::SLH_DSA)) {
+    if (!registry.IsSchemeRegistered(SCHEME_SLH_DSA_192F)) {
         BOOST_TEST_MESSAGE("SLH-DSA not available, skipping test");
         return;
     }
     
-    const ISignatureScheme* slhdsa = registry.GetScheme(SignatureSchemeId::SLH_DSA);
+    const ISignatureScheme* slhdsa = registry.GetScheme(SCHEME_SLH_DSA_192F);
     BOOST_REQUIRE(slhdsa != nullptr);
     
     // Test metadata
-    BOOST_CHECK_EQUAL(slhdsa->GetSchemeId(), SignatureSchemeId::SLH_DSA);
+    BOOST_CHECK_EQUAL(slhdsa->GetSchemeId(), SCHEME_SLH_DSA_192F);
     BOOST_CHECK_EQUAL(slhdsa->GetName(), "SLH-DSA-SHA2-192f");
     BOOST_CHECK_EQUAL(slhdsa->IsQuantumSafe(), true);
     BOOST_CHECK_EQUAL(slhdsa->GetMaxSignatureSize(), 35664);

@@ -48,6 +48,9 @@ static constexpr size_t MAX_ML_DSA_65_PUBKEY_SIZE = ML_DSA_65_PUBKEY_SIZE;  // M
 static constexpr size_t MAX_SLH_DSA_192F_PUBKEY_SIZE = SLH_DSA_192F_PUBKEY_SIZE; // SLH-DSA-192f public key
 static constexpr size_t MAX_QUANTUM_PUBKEY_SIZE_DYNAMIC = 65535;   // Maximum for any quantum pubkey (varint limit)
 
+/** Minimum size threshold to detect quantum signatures */
+static constexpr size_t MIN_QUANTUM_SIG_SIZE_THRESHOLD = 100;  // Quantum signatures are always larger than this
+
 /**
  * Dynamic signature format:
  * [scheme_id:1][sig_len:varint][signature][pubkey_len:varint][pubkey]

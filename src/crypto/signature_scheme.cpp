@@ -47,11 +47,11 @@ void SignatureSchemeRegistry::RegisterScheme(std::unique_ptr<ISignatureScheme> s
         return;
     }
     
-    SignatureSchemeId id = scheme->GetSchemeId();
+    SignatureSchemeID id = scheme->GetSchemeId();
     m_schemes[id] = std::move(scheme);
 }
 
-const ISignatureScheme* SignatureSchemeRegistry::GetScheme(SignatureSchemeId id) const
+const ISignatureScheme* SignatureSchemeRegistry::GetScheme(SignatureSchemeID id) const
 {
     auto it = m_schemes.find(id);
     if (it != m_schemes.end()) {
@@ -60,16 +60,16 @@ const ISignatureScheme* SignatureSchemeRegistry::GetScheme(SignatureSchemeId id)
     return nullptr;
 }
 
-std::vector<SignatureSchemeId> SignatureSchemeRegistry::GetRegisteredSchemes() const
+std::vector<SignatureSchemeID> SignatureSchemeRegistry::GetRegisteredSchemes() const
 {
-    std::vector<SignatureSchemeId> result;
+    std::vector<SignatureSchemeID> result;
     for (const auto& [id, scheme] : m_schemes) {
         result.push_back(id);
     }
     return result;
 }
 
-bool SignatureSchemeRegistry::IsSchemeRegistered(SignatureSchemeId id) const
+bool SignatureSchemeRegistry::IsSchemeRegistered(SignatureSchemeID id) const
 {
     return m_schemes.find(id) != m_schemes.end();
 }

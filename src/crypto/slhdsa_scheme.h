@@ -38,8 +38,8 @@ public:
         return SLH_DSA_192F_PRIVKEY_SIZE;
     }
     
-    SignatureSchemeId GetSchemeId() const override { 
-        return SignatureSchemeId::SLH_DSA; 
+    SignatureSchemeID GetSchemeId() const override { 
+        return SCHEME_SLH_DSA_192F; 
     }
     
     std::string GetName() const override { 

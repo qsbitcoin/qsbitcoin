@@ -3,7 +3,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <crypto/quantum_key.h>
-#include <crypto/quantum_hd.h>
 #include <crypto/signature_scheme.h>
 #include <crypto/oqs_wrapper.h>
 #include <hash.h>

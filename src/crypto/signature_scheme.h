@@ -10,18 +10,13 @@
 #include <key.h>
 #include <vector>
 #include <memory>
+#include <script/quantum_signature.h>
 
 namespace quantum {
 
-/**
- * Signature scheme identifiers
- * These match the scheme_flags in the address format
- */
-enum class SignatureSchemeId : uint8_t {
-    ECDSA   = 0x01,  // Legacy ECDSA
-    ML_DSA  = 0x02,  // ML-DSA-65 (Dilithium)
-    SLH_DSA = 0x03,  // SLH-DSA-192f (SPHINCS+)
-};
+// Forward declaration of SignatureSchemeID from quantum_signature.h
+// We use the enum defined there to avoid duplication
+enum SignatureSchemeID : uint8_t;
 
 /**
  * Abstract interface for signature schemes
@@ -72,9 +67,9 @@ public:
     
     /**
      * Get the scheme identifier
-     * @return The SignatureSchemeId for this scheme
+     * @return The SignatureSchemeID for this scheme
      */
-    virtual SignatureSchemeId GetSchemeId() const = 0;
+    virtual SignatureSchemeID GetSchemeId() const = 0;
     
     /**
      * Get a human-readable name for this scheme
@@ -95,7 +90,7 @@ public:
  */
 class SignatureSchemeRegistry {
 private:
-    std::map<SignatureSchemeId, std::unique_ptr<ISignatureScheme>> m_schemes;
+    std::map<SignatureSchemeID, std::unique_ptr<ISignatureScheme>> m_schemes;
     static SignatureSchemeRegistry* s_instance;
     
     SignatureSchemeRegistry();
@@ -117,20 +112,20 @@ public:
      * @param[in] id The scheme identifier
      * @return Pointer to the scheme, or nullptr if not found
      */
-    const ISignatureScheme* GetScheme(SignatureSchemeId id) const;
+    const ISignatureScheme* GetScheme(SignatureSchemeID id) const;
     
     /**
      * Get all registered schemes
      * @return Vector of scheme IDs
      */
-    std::vector<SignatureSchemeId> GetRegisteredSchemes() const;
+    std::vector<SignatureSchemeID> GetRegisteredSchemes() const;
     
     /**
      * Check if a scheme is registered
      * @param[in] id The scheme identifier
      * @return true if registered, false otherwise
      */
-    bool IsSchemeRegistered(SignatureSchemeId id) const;
+    bool IsSchemeRegistered(SignatureSchemeID id) const;
 };
 
 } // namespace quantum

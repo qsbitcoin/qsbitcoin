@@ -146,7 +146,7 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
                 }
                 
                 // Check if this looks like a quantum signature
-                if (data.size() > 100) {
+                if (data.size() > quantum::MIN_QUANTUM_SIG_SIZE_THRESHOLD) {
                     quantum::QuantumSignature qsig;
                     if (quantum::ParseQuantumSignature(data, qsig)) {
                         has_quantum_sig = true;

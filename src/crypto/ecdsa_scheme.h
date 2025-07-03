@@ -37,8 +37,8 @@ public:
         return 32; // 256-bit private key
     }
     
-    SignatureSchemeId GetSchemeId() const override { 
-        return SignatureSchemeId::ECDSA; 
+    SignatureSchemeID GetSchemeId() const override { 
+        return SCHEME_ECDSA; 
     }
     
     std::string GetName() const override { 
