@@ -310,15 +310,41 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
                     opcodetype opcode;
                     std::vector<unsigned char> vch;
                     
-                    // Get algorithm ID (1 byte)
+                    // Parse the witness script which has the format:
+                    // <push opcode> <1 byte algorithm ID> <push opcode> <pubkey> OP_CHECKSIG_EX
+                    // 
+                    // When created with script << vector<unsigned char>{algo_id}, the actual bytes are:
+                    // - For 1-byte data: 0x01 (OP_PUSH1) followed by the byte
+                    // - For larger data: appropriate push opcode (e.g., 0xfd 0xa007 for 1952 bytes)
+                    //   followed by the data
+                    // 
+                    // The GetOp function handles these push opcodes automatically and returns
+                    // just the pushed data in the vch vector
+                    
+                    // Get algorithm ID (should be 1 byte when pushed)
                     if (script.GetOp(pc, opcode, vch) && vch.size() == 1) {
-                        // Get pubkey
-                        if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
-                            // Get opcode
-                            if (script.GetOp(pc, opcode) && 
-                                (opcode == OP_CHECKSIG_EX) &&
-                                pc == script.end()) {
-                                is_quantum = true;
+                        uint8_t algo_id = vch[0];
+                        // Check if it's a valid quantum algorithm ID
+                        if (algo_id == quantum::SCHEME_ML_DSA_65 || 
+                            algo_id == quantum::SCHEME_SLH_DSA_192F) {
+                            // Get pubkey (size depends on algorithm)
+                            if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
+                                // Verify pubkey size matches expected size for the algorithm
+                                bool valid_pubkey_size = false;
+                                if (algo_id == quantum::SCHEME_ML_DSA_65 && vch.size() == quantum::ML_DSA_65_PUBKEY_SIZE) {
+                                    valid_pubkey_size = true;
+                                } else if (algo_id == quantum::SCHEME_SLH_DSA_192F && vch.size() == quantum::SLH_DSA_192F_PUBKEY_SIZE) {
+                                    valid_pubkey_size = true;
+                                }
+                                
+                                if (valid_pubkey_size) {
+                                    // Get final opcode (should be OP_CHECKSIG_EX)
+                                    if (script.GetOp(pc, opcode) && 
+                                        opcode == OP_CHECKSIG_EX &&
+                                        pc == script.end()) {
+                                        is_quantum = true;
+                                    }
+                                }
                             }
                         }
                     }

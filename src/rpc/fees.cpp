@@ -342,8 +342,8 @@ static RPCHelpMan estimatetxfee()
                 is_quantum = true;
                 discount_factor = quantum::ML_DSA_FEE_DISCOUNT;
             } else if (sig_type == "slh-dsa") {
-                sig_size = 49856;  // SLH-DSA-192f signature size
-                pubkey_size = 96;   // SLH-DSA-192f public key size
+                sig_size = 35664;  // SLH-DSA-192f signature size
+                pubkey_size = 48;   // SLH-DSA-192f public key size
                 is_quantum = true;
                 discount_factor = quantum::SLH_DSA_FEE_DISCOUNT;
             } else {

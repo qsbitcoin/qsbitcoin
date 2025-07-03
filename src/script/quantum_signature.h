@@ -26,16 +26,26 @@ enum SignatureSchemeID : uint8_t {
     // ... extensible up to 0xFF
 };
 
+/** Exact sizes for ML-DSA-65 (NIST standard - verified from liboqs) */
+static constexpr size_t ML_DSA_65_PRIVKEY_SIZE = 4032;     // ML-DSA-65 private key size
+static constexpr size_t ML_DSA_65_PUBKEY_SIZE = 1952;      // ML-DSA-65 public key size
+static constexpr size_t ML_DSA_65_SIG_SIZE = 3309;         // ML-DSA-65 signature size
+
+/** Exact sizes for SLH-DSA-192f (NIST standard - verified from liboqs) */
+static constexpr size_t SLH_DSA_192F_PRIVKEY_SIZE = 96;    // SLH-DSA-192f private key size
+static constexpr size_t SLH_DSA_192F_PUBKEY_SIZE = 48;     // SLH-DSA-192f public key size
+static constexpr size_t SLH_DSA_192F_SIG_SIZE = 35664;     // SLH-DSA-192f signature size
+
 /** Maximum signature sizes for validation */
 static constexpr size_t MAX_ECDSA_SIG_SIZE = 73;           // DER encoded ECDSA
-static constexpr size_t MAX_ML_DSA_65_SIG_SIZE = 3366;     // ML-DSA-65 signature
-static constexpr size_t MAX_SLH_DSA_192F_SIG_SIZE = 49856; // SLH-DSA-192f signature
+static constexpr size_t MAX_ML_DSA_65_SIG_SIZE = 3366;     // ML-DSA-65 signature (with margin)
+static constexpr size_t MAX_SLH_DSA_192F_SIG_SIZE = SLH_DSA_192F_SIG_SIZE; // SLH-DSA-192f signature
 static constexpr size_t MAX_QUANTUM_SIG_SIZE = 65535;      // Maximum for any quantum signature (varint limit)
 
 /** Maximum public key sizes */
 static constexpr size_t MAX_ECDSA_PUBKEY_SIZE = 65;        // Uncompressed ECDSA public key
-static constexpr size_t MAX_ML_DSA_65_PUBKEY_SIZE = 1952;  // ML-DSA-65 public key
-static constexpr size_t MAX_SLH_DSA_192F_PUBKEY_SIZE = 48; // SLH-DSA-192f public key
+static constexpr size_t MAX_ML_DSA_65_PUBKEY_SIZE = ML_DSA_65_PUBKEY_SIZE;  // ML-DSA-65 public key
+static constexpr size_t MAX_SLH_DSA_192F_PUBKEY_SIZE = SLH_DSA_192F_PUBKEY_SIZE; // SLH-DSA-192f public key
 static constexpr size_t MAX_QUANTUM_PUBKEY_SIZE_DYNAMIC = 65535;   // Maximum for any quantum pubkey (varint limit)
 
 /**

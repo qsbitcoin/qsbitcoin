@@ -29,13 +29,7 @@ enum class KeyType : uint8_t {
     SLH_DSA_192F = 0x02 // SLH-DSA-SHA2-192f-simple (SPHINCS+)
 };
 
-/**
- * Maximum sizes for quantum keys and signatures
- * Based on liboqs v0.12.0 measurements
- */
-static constexpr size_t MAX_QUANTUM_PUBKEY_SIZE = 1952;  // ML-DSA-65 public key
-static constexpr size_t MAX_QUANTUM_PRIVKEY_SIZE = 4032; // ML-DSA-65 private key
-static constexpr size_t MAX_QUANTUM_SIGNATURE_SIZE = 35664; // SLH-DSA signature
+// Note: Size constants are defined in script/quantum_signature.h to avoid duplication
 
 /**
  * A quantum-safe public key that can handle multiple algorithm types

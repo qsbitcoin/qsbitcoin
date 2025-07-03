@@ -125,8 +125,8 @@ BOOST_AUTO_TEST_CASE(quantum_signature_size_validation)
     
     // Test valid sizes
     {
-        std::vector<unsigned char> valid_sig(MAX_ML_DSA_65_SIG_SIZE - 10, 0xFF);
-        std::vector<unsigned char> valid_pubkey(MAX_ML_DSA_65_PUBKEY_SIZE - 10, 0xAA);
+        std::vector<unsigned char> valid_sig(ML_DSA_65_SIG_SIZE, 0xFF);
+        std::vector<unsigned char> valid_pubkey(ML_DSA_65_PUBKEY_SIZE, 0xAA);
         
         QuantumSignature qsig(SCHEME_ML_DSA_65, valid_sig, valid_pubkey);
         BOOST_CHECK(qsig.IsValidSize());

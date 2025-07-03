@@ -28,7 +28,7 @@ constexpr size_t MAX_STANDARD_TX_WEIGHT_QUANTUM = 1000000;
 // SLH-DSA sizes
 constexpr size_t SLH_DSA_PUBKEY_SIZE = 48;
 constexpr size_t SLH_DSA_SIGNATURE_SIZE = 35664;  // Actual size from test
-constexpr size_t SLH_DSA_EXPECTED_SIZE = 49856;   // What Bitcoin might expect
+constexpr size_t SLH_DSA_EXPECTED_SIZE = 35664;   // SLH-DSA-192f signature size per NIST standard
 
 // Quantum scheme IDs
 constexpr uint8_t SCHEME_ID_ECDSA = 0x01;

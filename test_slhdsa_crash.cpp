@@ -10,7 +10,7 @@
 #include <cstring>
 #include <oqs/oqs.h>
 
-#define SLH_DSA_SIG_SIZE 49856  // Expected signature size for SLH-DSA-192f
+#define SLH_DSA_SIG_SIZE 35664  // Expected signature size for SLH-DSA-192f
 
 void test_memory_allocation() {
     std::cout << "Test 1: Large memory allocation patterns" << std::endl;

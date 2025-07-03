@@ -8,6 +8,7 @@
 #include <crypto/oqs_wrapper.h>
 #include <hash.h>
 #include <random.h>
+#include <script/quantum_signature.h>
 #include <support/cleanse.h>
 #include <util/strencodings.h>
 
@@ -36,10 +37,10 @@ bool CQuantumPubKey::IsValid() const
             return false;
             
         case KeyType::ML_DSA_65:
-            return m_vchPubKey.size() == 1952; // ML-DSA-65 public key size
+            return m_vchPubKey.size() == quantum::ML_DSA_65_PUBKEY_SIZE;
             
         case KeyType::SLH_DSA_192F:
-            return m_vchPubKey.size() == 48; // SPHINCS+-SHA2-192f-simple public key size
+            return m_vchPubKey.size() == quantum::SLH_DSA_192F_PUBKEY_SIZE;
             
         default:
             return false;
@@ -181,8 +182,8 @@ CQuantumPubKey CQuantumKey::GetPubKey() const
             }
             // Otherwise extract public key from secret key
             // SPHINCS+: public key is the last 48 bytes of the 96-byte secret key
-            if (m_vchPrivKey.size() == 96) {
-                std::vector<unsigned char> pubkey(m_vchPrivKey.end() - 48, m_vchPrivKey.end());
+            if (m_vchPrivKey.size() == quantum::SLH_DSA_192F_PRIVKEY_SIZE) {
+                std::vector<unsigned char> pubkey(m_vchPrivKey.end() - quantum::SLH_DSA_192F_PUBKEY_SIZE, m_vchPrivKey.end());
                 return CQuantumPubKey(KeyType::SLH_DSA_192F, pubkey);
             }
             break;
@@ -311,10 +312,10 @@ bool CQuantumKey::Load(const secure_vector& privkey, const CQuantumPubKey& pubke
         size_t expected_size = 0;
         switch (pubkey.GetType()) {
             case KeyType::ML_DSA_65:
-                expected_size = 4032;
+                expected_size = quantum::ML_DSA_65_PRIVKEY_SIZE;
                 break;
             case KeyType::SLH_DSA_192F:
-                expected_size = 96;
+                expected_size = quantum::SLH_DSA_192F_PRIVKEY_SIZE;
                 break;
             default:
                 return false;

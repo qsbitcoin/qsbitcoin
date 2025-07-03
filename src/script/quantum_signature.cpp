@@ -88,11 +88,34 @@ size_t QuantumSignature::GetMaxPubKeySize(SignatureSchemeID scheme_id)
 
 bool QuantumSignature::IsValidSize() const
 {
-    size_t max_sig = GetMaxSignatureSize(scheme_id);
-    size_t max_pk = GetMaxPubKeySize(scheme_id);
-    
-    return signature.size() <= max_sig && pubkey.size() <= max_pk &&
-           signature.size() > 0 && pubkey.size() > 0;
+    // Validate sizes are within acceptable ranges
+    // The exact NIST standard sizes will be enforced by liboqs during verification
+    switch (scheme_id) {
+        case SCHEME_ML_DSA_65:
+            // ML-DSA-65: Check signature is within reasonable range and pubkey is exact
+            return signature.size() <= MAX_ML_DSA_65_SIG_SIZE && 
+                   signature.size() > 0 &&
+                   pubkey.size() == ML_DSA_65_PUBKEY_SIZE;
+        
+        case SCHEME_SLH_DSA_192F:
+            // SLH-DSA-192f: Both sizes should be exact per NIST standard
+            return signature.size() == SLH_DSA_192F_SIG_SIZE && 
+                   pubkey.size() == SLH_DSA_192F_PUBKEY_SIZE;
+        
+        case SCHEME_ECDSA:
+            // ECDSA signatures vary in size due to DER encoding
+            return signature.size() <= MAX_ECDSA_SIG_SIZE && 
+                   signature.size() > 0 &&
+                   pubkey.size() <= MAX_ECDSA_PUBKEY_SIZE &&
+                   pubkey.size() > 0;
+        
+        default:
+            // Unknown schemes use maximum size validation
+            size_t max_sig = GetMaxSignatureSize(scheme_id);
+            size_t max_pk = GetMaxPubKeySize(scheme_id);
+            return signature.size() <= max_sig && pubkey.size() <= max_pk &&
+                   signature.size() > 0 && pubkey.size() > 0;
+    }
 }
 
 size_t QuantumSignature::GetSerializedSize() const

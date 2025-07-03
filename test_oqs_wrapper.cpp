@@ -54,7 +54,7 @@ bool test_oqs_context_creation() {
         // Check expected sizes for SLH-DSA-192f
         bool size_check = (ctx.GetPublicKeySize() == 48) &&
                          (ctx.GetSecretKeySize() == 96) &&
-                         (ctx.GetMaxSignatureSize() == 49856);
+                         (ctx.GetMaxSignatureSize() == 35664);
         
         print_result("Size verification", size_check);
         

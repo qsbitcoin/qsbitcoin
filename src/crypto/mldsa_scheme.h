@@ -6,6 +6,7 @@
 #define BITCOIN_CRYPTO_MLDSA_SCHEME_H
 
 #include <crypto/signature_scheme.h>
+#include <script/quantum_signature.h>
 
 namespace quantum {
 
@@ -26,15 +27,15 @@ public:
                 const std::vector<unsigned char>& sig) const override;
     
     size_t GetMaxSignatureSize() const override { 
-        return 3309; // ML-DSA-65 signature size
+        return ML_DSA_65_SIG_SIZE;
     }
     
     size_t GetPublicKeySize() const override { 
-        return 1952; // ML-DSA-65 public key size
+        return ML_DSA_65_PUBKEY_SIZE;
     }
     
     size_t GetPrivateKeySize() const override { 
-        return 4032; // ML-DSA-65 private key size
+        return ML_DSA_65_PRIVKEY_SIZE;
     }
     
     SignatureSchemeId GetSchemeId() const override { 
