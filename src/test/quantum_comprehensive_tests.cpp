@@ -8,6 +8,8 @@
 #include <consensus/validation.h>
 #include <crypto/quantum_key.h>
 #include <crypto/sha256.h>
+#include <script/quantum_signature.h>
+#include <script/quantum_sigchecker.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -40,7 +42,7 @@ BOOST_AUTO_TEST_CASE(quantum_transaction_complete_cycle)
     {
         // Create witness script
         CScript witness_script;
-        witness_script << ml_dsa_pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+        witness_script << ml_dsa_pubkey.GetKeyData() << OP_CHECKSIG_EX;
         BOOST_CHECK_EQUAL(witness_script.size(), 1952 + 3 + 1); // ML-DSA-65 pubkey + PUSHDATA2 + opcode
         
         // Create P2WSH scriptPubKey
@@ -69,17 +71,23 @@ BOOST_AUTO_TEST_CASE(quantum_transaction_complete_cycle)
         sig.push_back(SIGHASH_ALL);
         BOOST_CHECK_EQUAL(sig.size(), 3309 + 1); // 3309 bytes + sighash byte
         
+        // Prepend algorithm ID for OP_CHECKSIG_EX
+        std::vector<unsigned char> full_sig;
+        full_sig.push_back(quantum::SCHEME_ML_DSA_65);
+        full_sig.insert(full_sig.end(), sig.begin(), sig.end());
+        
         // Build witness
         CScriptWitness witness;
-        witness.stack.push_back(sig);
+        witness.stack.push_back(full_sig);
         witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
         mtx.vin[0].scriptWitness = witness;
+        
         
         CTransaction tx(mtx);
         
         // Verify script execution
         PrecomputedTransactionData txdata(tx);
-        TransactionSignatureChecker checker(&tx, 0, amount, txdata, MissingDataBehavior::FAIL);
+        QuantumTransactionSignatureChecker checker(&tx, 0, amount, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         // Should fail without quantum flags
@@ -103,7 +111,7 @@ BOOST_AUTO_TEST_CASE(quantum_transaction_complete_cycle)
     {
         // Create witness script
         CScript witness_script;
-        witness_script << slh_dsa_pubkey.GetKeyData() << OP_CHECKSIG_SLH_DSA;
+        witness_script << slh_dsa_pubkey.GetKeyData() << OP_CHECKSIG_EX;
         BOOST_CHECK_EQUAL(witness_script.size(), 48 + 1 + 1); // SLH-DSA-192f pubkey + length byte + opcode
         
         // Create P2WSH scriptPubKey
@@ -131,9 +139,14 @@ BOOST_AUTO_TEST_CASE(quantum_transaction_complete_cycle)
         sig.push_back(SIGHASH_ALL);
         BOOST_CHECK_EQUAL(sig.size(), 35664 + 1); // 35664 bytes + sighash byte
         
+        // Prepend algorithm ID for OP_CHECKSIG_EX
+        std::vector<unsigned char> full_sig;
+        full_sig.push_back(quantum::SCHEME_SLH_DSA_192F);
+        full_sig.insert(full_sig.end(), sig.begin(), sig.end());
+        
         // Build witness
         CScriptWitness witness;
-        witness.stack.push_back(sig);
+        witness.stack.push_back(full_sig);
         witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
         mtx.vin[0].scriptWitness = witness;
         
@@ -141,7 +154,7 @@ BOOST_AUTO_TEST_CASE(quantum_transaction_complete_cycle)
         
         // Verify with quantum flags
         PrecomputedTransactionData txdata(tx);
-        TransactionSignatureChecker checker(&tx, 0, amount, txdata, MissingDataBehavior::FAIL);
+        QuantumTransactionSignatureChecker checker(&tx, 0, amount, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
@@ -159,7 +172,7 @@ BOOST_AUTO_TEST_CASE(quantum_witness_corruption_prevention)
     CQuantumPubKey pubkey = key.GetPubKey();
     
     CScript witness_script;
-    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_EX;
     
     uint256 script_hash;
     CSHA256().Write(witness_script.data(), witness_script.size()).Finalize(script_hash.begin());
@@ -183,15 +196,20 @@ BOOST_AUTO_TEST_CASE(quantum_witness_corruption_prevention)
     BOOST_CHECK(key.Sign(sighash, sig));
     sig.push_back(SIGHASH_ALL);
     
+    // Prepend algorithm ID for OP_CHECKSIG_EX
+    std::vector<unsigned char> full_sig;
+    full_sig.push_back(quantum::SCHEME_ML_DSA_65);
+    full_sig.insert(full_sig.end(), sig.begin(), sig.end());
+    
     // Create valid witness with 2 elements
     CScriptWitness witness;
-    witness.stack.push_back(sig);
+    witness.stack.push_back(full_sig);
     witness.stack.push_back(std::vector<unsigned char>(witness_script.begin(), witness_script.end()));
     mtx.vin[0].scriptWitness = witness;
     
     // Verify original witness
     BOOST_CHECK_EQUAL(witness.stack.size(), 2);
-    BOOST_CHECK_EQUAL(witness.stack[0].size(), 3310); // 3309 + sighash byte
+    BOOST_CHECK_EQUAL(witness.stack[0].size(), 3311); // algo ID + 3309 + sighash byte
     
     // Test witness malleation attempts
     CTransaction tx(mtx);
@@ -203,7 +221,7 @@ BOOST_AUTO_TEST_CASE(quantum_witness_corruption_prevention)
         
         CTransaction tx_mal(mtx_mal);
         PrecomputedTransactionData txdata(tx_mal);
-        TransactionSignatureChecker checker(&tx_mal, 0, amount, txdata, MissingDataBehavior::FAIL);
+        QuantumTransactionSignatureChecker checker(&tx_mal, 0, amount, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
@@ -217,7 +235,7 @@ BOOST_AUTO_TEST_CASE(quantum_witness_corruption_prevention)
         
         CTransaction tx_mal(mtx_mal);
         PrecomputedTransactionData txdata(tx_mal);
-        TransactionSignatureChecker checker(&tx_mal, 0, amount, txdata, MissingDataBehavior::FAIL);
+        QuantumTransactionSignatureChecker checker(&tx_mal, 0, amount, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
@@ -227,7 +245,7 @@ BOOST_AUTO_TEST_CASE(quantum_witness_corruption_prevention)
     // Original should still verify
     {
         PrecomputedTransactionData txdata(tx);
-        TransactionSignatureChecker checker(&tx, 0, amount, txdata, MissingDataBehavior::FAIL);
+        QuantumTransactionSignatureChecker checker(&tx, 0, amount, txdata, MissingDataBehavior::FAIL);
         ScriptError error = SCRIPT_ERR_OK;
         
         unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_QUANTUM_SIGS;
@@ -328,7 +346,7 @@ BOOST_AUTO_TEST_CASE(quantum_sighash_types)
     CQuantumPubKey pubkey = key.GetPubKey();
     
     CScript witness_script;
-    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_EX;
     
     CMutableTransaction mtx;
     mtx.version = 2;

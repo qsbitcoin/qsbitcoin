@@ -1310,7 +1310,12 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     // Find the index of the script
     auto it = m_map_script_pub_keys.find(script);
     if (it == m_map_script_pub_keys.end()) {
-        LogPrintf("[SEGWIT] Script not found in m_map_script_pub_keys\n");
+        LogPrintf("[SEGWIT] Script not found in m_map_script_pub_keys (map size=%d)\n", m_map_script_pub_keys.size());
+        // Dump all scripts in the map for debugging
+        LogPrintf("[SEGWIT] Known scripts:\n");
+        for (const auto& [s, idx] : m_map_script_pub_keys) {
+            LogPrintf("[SEGWIT]   %s -> %d\n", HexStr(s), idx);
+        }
         return nullptr;
     }
     int32_t index = it->second;
@@ -1319,6 +1324,52 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     auto provider = GetSigningProvider(index, include_private);
     if (provider) {
         LogPrintf("[SEGWIT] Got signing provider with %d keys\n", provider->keys.size());
+        
+        // For P2WSH scripts, we need to add the witness script to the provider
+        if (script.size() == 34 && script[0] == OP_0 && script[1] == 32) {
+            // Extract the witness program hash from the P2WSH script
+            uint256 witness_program_hash;
+            std::copy(script.begin() + 2, script.begin() + 34, witness_program_hash.begin());
+            LogPrintf("[SEGWIT] P2WSH script detected, looking for witness script with hash %s\n", witness_program_hash.ToString());
+            
+            // Debug: Show all witness scripts we have
+            LogPrintf("[SEGWIT] Available witness scripts in m_map_witness_scripts: %d\n", m_map_witness_scripts.size());
+            for (const auto& [hash, ws] : m_map_witness_scripts) {
+                LogPrintf("[SEGWIT]   Hash: %s, Script size: %d\n", hash.ToString(), ws.size());
+                if (ws.size() < 100) {
+                    LogPrintf("[SEGWIT]   Script hex: %s\n", HexStr(ws));
+                }
+            }
+            
+            // Find the witness script with this hash
+            auto wit_it = m_map_witness_scripts.find(witness_program_hash);
+            if (wit_it != m_map_witness_scripts.end()) {
+                LogPrintf("[SEGWIT] Found witness script for P2WSH output, adding to provider\n");
+                // Add the witness script to the provider with CScriptID key
+                CScriptID scriptid(wit_it->second);
+                provider->scripts[scriptid] = wit_it->second;
+                LogPrintf("[SEGWIT] Added witness script with CScriptID %s\n", scriptid.ToString());
+                LogPrintf("[SEGWIT] Witness script: %s\n", HexStr(wit_it->second));
+                LogPrintf("[SEGWIT] Provider now has %d scripts\n", provider->scripts.size());
+                
+                // Also add to provider.quantum_* fields if this is a quantum witness script
+                // Check if it's a quantum script by looking at first few bytes
+                if (wit_it->second.size() >= 3) {
+                    CScript::const_iterator pc = wit_it->second.begin();
+                    opcodetype opcode;
+                    std::vector<unsigned char> vch;
+                    if (wit_it->second.GetOp(pc, opcode, vch) && vch.size() == 1) {
+                        uint8_t algo_id = vch[0];
+                        if (algo_id == quantum::SCHEME_ML_DSA_65 || algo_id == quantum::SCHEME_SLH_DSA_192F) {
+                            LogPrintf("[SEGWIT] Detected quantum witness script with algorithm ID %d\n", algo_id);
+                        }
+                    }
+                }
+            } else {
+                LogPrintf("[SEGWIT] WARNING: No witness script found for P2WSH hash %s\n", witness_program_hash.ToString());
+            }
+        }
+        
         // Populate quantum keys for this script if needed
         PopulateQuantumSigningProvider(script, *provider, include_private, this);
     } else {
@@ -1361,9 +1412,9 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
         
         // CRITICAL: Add witness scripts for quantum addresses
         // The signing process needs access to the witness script to create the witness stack
-        for (const auto& [hash, script] : m_map_witness_scripts) {
+        for (const auto& [hash, witness_script] : m_map_witness_scripts) {
             LogPrintf("[SEGWIT] Adding witness script to provider: hash=%s\n", hash.ToString());
-            out_keys->scripts[CScriptID(script)] = script;
+            out_keys->scripts[CScriptID(witness_script)] = witness_script;
         }
         LogPrintf("[SEGWIT] Added %d witness scripts to quantum signing provider\n", m_map_witness_scripts.size());
         
@@ -1888,11 +1939,24 @@ bool DescriptorScriptPubKeyMan::AddCryptedQuantumKey(const CKeyID& key_id, const
 bool DescriptorScriptPubKeyMan::GetQuantumKey(const CKeyID& keyid, const quantum::CQuantumKey** key) const
 {
     LOCK(cs_desc_man);
+    LogPrintf("[QUANTUM] GetQuantumKey called for keyid=%s\n", keyid.ToString());
+    LogPrintf("[QUANTUM] Total quantum keys in wallet: %d\n", m_map_quantum_keys.size());
+    
+    // Dump all quantum key IDs for debugging
+    if (!m_map_quantum_keys.empty()) {
+        LogPrintf("[QUANTUM] Known quantum key IDs:\n");
+        for (const auto& [id, qkey] : m_map_quantum_keys) {
+            LogPrintf("[QUANTUM]   %s\n", id.ToString());
+        }
+    }
+    
     auto it = m_map_quantum_keys.find(keyid);
     if (it != m_map_quantum_keys.end() && it->second) {
         *key = it->second.get();
+        LogPrintf("[QUANTUM] Found quantum key for keyid=%s\n", keyid.ToString());
         return true;
     }
+    LogPrintf("[QUANTUM] Quantum key NOT found for keyid=%s\n", keyid.ToString());
     return false;
 }
 

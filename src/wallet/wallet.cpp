@@ -3529,14 +3529,17 @@ std::unique_ptr<SigningProvider> CWallet::GetSolvingProvider(const CScript& scri
 
 std::unique_ptr<SigningProvider> CWallet::GetSolvingProvider(const CScript& script, SignatureData& sigdata) const
 {
+    LogPrintf("[WALLET] GetSolvingProvider for script %s\n", HexStr(script));
     // Search the cache for relevant SPKMs instead of iterating m_spk_managers
     const auto& it = m_cached_spks.find(script);
     if (it != m_cached_spks.end()) {
+        LogPrintf("[WALLET] Found script in cache, %d SPKMs available\n", it->second.size());
         // All spkms for a given script must already be able to make a SigningProvider for the script, so just return the first one.
         Assume(it->second.at(0)->CanProvide(script, sigdata));
         return it->second.at(0)->GetSolvingProvider(script);
     }
-
+    
+    LogPrintf("[WALLET] Script not found in m_cached_spks (cache size=%d)\n", m_cached_spks.size());
     return nullptr;
 }
 

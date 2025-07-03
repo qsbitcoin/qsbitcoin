@@ -59,9 +59,10 @@ run regtest and bitcoin-cli, delete all wallet and chain data. mine some blocks,
 ### Transaction Format
 ```cpp
 // Witness structure for quantum transactions
-witness: [signature][pubkey]
-// Script: OP_0 <20-byte-script-hash>
-// Witness script: <quantum_pubkey> OP_CHECKSIG_ML_DSA/OP_CHECKSIG_SLH_DSA
+witness: [signature][witness_script]
+// Script: OP_0 <32-byte-script-hash>
+// Witness script: <pubkey> OP_CHECKSIG_EX
+// Signature format: [algorithm_id:1 byte][signature_data][sighash_type:1 byte]
 ```
 
 ### Key Implementation Files
@@ -173,6 +174,33 @@ witness: [signature][pubkey]
 2. **Legacy Issue**: Addresses created before June 30 fix have mismatched witness scripts
 3. **Test coverage**: Some transaction validation tests need proper context
 4. **Migration tools**: ECDSA→quantum migration utilities not implemented
+
+## Recent Updates
+
+### Opcode Consolidation (July 2, 2025)
+**Major Architecture Improvement**: Reduced quantum opcodes from 4 to 2 unified opcodes
+
+**Previous Implementation** (4 opcodes):
+- OP_CHECKSIG_ML_DSA (0xb3) - ML-DSA signature verification
+- OP_CHECKSIG_SLH_DSA (0xb4) - SLH-DSA signature verification
+- OP_CHECKSIGVERIFY_ML_DSA (0xb5) - ML-DSA verify with stack cleanup
+- OP_CHECKSIGVERIFY_SLH_DSA (0xb6) - SLH-DSA verify with stack cleanup
+
+**New Implementation** (2 unified opcodes):
+- OP_CHECKSIG_EX (0xb3) - Extended checksig for all quantum signatures
+- OP_CHECKSIGVERIFY_EX (0xb4) - Extended checksigverify for all quantum signatures
+
+**Key Changes**:
+1. **Algorithm Identification**: Moved from opcode to signature data (first byte)
+   - 0x02 = ML-DSA-65
+   - 0x03 = SLH-DSA-192f
+2. **Witness Script Format**: Simplified to `<pubkey> OP_CHECKSIG_EX`
+3. **Signature Format**: `[algorithm_id:1 byte][signature_data][sighash_type:1 byte]`
+4. **Benefits**:
+   - Fewer opcodes to maintain and test
+   - Easier to add new algorithms in the future
+   - Cleaner soft fork implementation
+   - More consistent with Bitcoin's design philosophy
 
 ## Key Development Learnings
 
@@ -379,5 +407,5 @@ The core issue preventing quantum address spending has been identified and fixed
 - Both ML-DSA and SLH-DSA signatures work when using correct keys
 
 ---
-*Last Updated: June 30, 2025*
-*Version: 1.7 - Quantum soft fork complete, wallet signing fixed for new addresses*
+*Last Updated: July 2, 2025*
+*Version: 1.8 - Unified quantum opcodes implemented, reduced from 4 to 2*

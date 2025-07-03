@@ -19,6 +19,23 @@
 
 using namespace quantum;
 
+// Helper function to create a quantum signature with algorithm ID prepended
+static std::vector<unsigned char> CreateQuantumSignatureWithAlgoId(const CQuantumKey& key, const uint256& hash, int hashtype)
+{
+    std::vector<unsigned char> sig;
+    if (!key.Sign(hash, sig)) {
+        return {};
+    }
+    
+    // Prepend algorithm ID
+    std::vector<unsigned char> full_sig;
+    full_sig.push_back(key.GetType() == KeyType::ML_DSA_65 ? SCHEME_ML_DSA_65 : SCHEME_SLH_DSA_192F);
+    full_sig.insert(full_sig.end(), sig.begin(), sig.end());
+    full_sig.push_back((unsigned char)hashtype);
+    
+    return full_sig;
+}
+
 BOOST_FIXTURE_TEST_SUITE(quantum_transaction_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(quantum_signature_serialization)
@@ -256,7 +273,7 @@ BOOST_AUTO_TEST_CASE(quantum_direct_signature_check)
         
         // Create witness script first
         CScript witness_script;
-        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+        witness_script << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << pubkey.GetKeyData() << OP_CHECKSIG_EX;
         
         // Create transaction with proper inputs
         CMutableTransaction mtx;
@@ -284,18 +301,19 @@ BOOST_AUTO_TEST_CASE(quantum_direct_signature_check)
         PrecomputedTransactionData txdata(tx);
         QuantumTransactionSignatureChecker<CTransaction> checker(&tx, 0, 100000000, txdata, MissingDataBehavior::FAIL);
         
-        // Add SIGHASH_ALL byte
-        sig.push_back(SIGHASH_ALL);
+        // Create full signature with algorithm ID for OP_CHECKSIG_EX
+        std::vector<unsigned char> full_sig = CreateQuantumSignatureWithAlgoId(key, sighash, SIGHASH_ALL);
+        BOOST_CHECK(!full_sig.empty());
         
         // Test CheckQuantumSignature directly
         // First, let's verify our inputs are correct
-        BOOST_CHECK_MESSAGE(sig.size() > 0, "Signature is empty");
-        BOOST_CHECK_MESSAGE(sig.back() == SIGHASH_ALL, "Signature doesn't end with SIGHASH_ALL");
+        BOOST_CHECK_MESSAGE(full_sig.size() > 0, "Signature is empty");
+        BOOST_CHECK_MESSAGE(full_sig.back() == SIGHASH_ALL, "Signature doesn't end with SIGHASH_ALL");
         BOOST_CHECK_MESSAGE(pubkey.GetKeyData().size() == MAX_ML_DSA_65_PUBKEY_SIZE, 
                           "Pubkey size is " + std::to_string(pubkey.GetKeyData().size()) + 
                           " expected " + std::to_string(MAX_ML_DSA_65_PUBKEY_SIZE));
         
-        bool result = checker.CheckQuantumSignature(sig, pubkey.GetKeyData(), witness_script, 
+        bool result = checker.CheckQuantumSignature(full_sig, pubkey.GetKeyData(), witness_script, 
                                                    SigVersion::WITNESS_V0, quantum::SCHEME_ML_DSA_65);
         BOOST_CHECK_MESSAGE(result, "Direct CheckQuantumSignature failed");
     }
@@ -311,9 +329,9 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         key.MakeNewKey(KeyType::ML_DSA_65);
         CQuantumPubKey pubkey = key.GetPubKey();
         
-        // Create witness script: <pubkey> OP_CHECKSIG_ML_DSA
+        // Create witness script: <pubkey> OP_CHECKSIG_EX
         CScript witness_script;
-        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_EX;
         
         // Create P2WSH scriptPubKey
         uint256 script_hash;
@@ -333,9 +351,8 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         
         // Create signature
         uint256 hash = SignatureHash(witness_script, mtx, 0, SIGHASH_ALL, 100000000, SigVersion::WITNESS_V0);
-        std::vector<unsigned char> sig;
-        BOOST_CHECK(key.Sign(hash, sig));
-        sig.push_back(SIGHASH_ALL);
+        std::vector<unsigned char> sig = CreateQuantumSignatureWithAlgoId(key, hash, SIGHASH_ALL);
+        BOOST_CHECK(!sig.empty());
         
         // Build witness stack
         CScriptWitness witness;
@@ -365,9 +382,9 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         key.MakeNewKey(KeyType::SLH_DSA_192F);
         CQuantumPubKey pubkey = key.GetPubKey();
         
-        // Create witness script: <pubkey> OP_CHECKSIG_SLH_DSA
+        // Create witness script: <pubkey> OP_CHECKSIG_EX
         CScript witness_script;
-        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_SLH_DSA;
+        witness_script << pubkey.GetKeyData() << OP_CHECKSIG_EX;
         
         // Create P2WSH scriptPubKey
         uint256 script_hash;
@@ -387,9 +404,8 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_execution)
         
         // Create signature
         uint256 hash = SignatureHash(witness_script, mtx, 0, SIGHASH_ALL, 100000000, SigVersion::WITNESS_V0);
-        std::vector<unsigned char> sig;
-        BOOST_CHECK(key.Sign(hash, sig));
-        sig.push_back(SIGHASH_ALL);
+        std::vector<unsigned char> sig = CreateQuantumSignatureWithAlgoId(key, hash, SIGHASH_ALL);
+        BOOST_CHECK(!sig.empty());
         
         // Build witness stack
         CScriptWitness witness;

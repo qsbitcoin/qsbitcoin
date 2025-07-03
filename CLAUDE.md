@@ -153,7 +153,7 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - **Weight calculations**: Special factors for quantum signatures (2x-3x vs 4x ECDSA)
 - **Activation status**: Testnet/Regtest ALWAYS_ACTIVE, Mainnet NEVER_ACTIVE
 
-### Recently Completed (June 27-July 1, 2025)
+### Recently Completed (June 27-July 2, 2025)
 
 1. **Quantum Descriptors**: Full `qpkh()` descriptor implementation in descriptor.cpp
 2. **SPKM Integration**: DescriptorScriptPubKeyMan now supports quantum signing
@@ -168,12 +168,23 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
    - Fixed virtual function override issue (SignatureSchemeID vs uint8_t)
    - Updated tests to use QuantumTransactionSignatureChecker instead of TransactionSignatureChecker
    - All quantum transaction tests now pass
+7. **Witness Script Fix** (July 2, 2025): Fixed quantum address spending issue
+   - Fixed witness script format mismatch preventing quantum addresses from spending
+   - SignStep expects script format with push operations, not raw data
+   - QPKHDescriptor now uses proper script `<<` operator for witness scripts
+   - Both ML-DSA and SLH-DSA addresses can now successfully spend funds
+8. **Critical Bug Fixes** (July 2, 2025): Fixed three critical issues found during testing
+   - **Buffer Overflow Fix**: Fixed QuantumPubkeyProvider incorrectly assuming CKeyID is 32 bytes (it's 20 bytes)
+   - **Null Pointer Fix**: Fixed crash in VerifyScript when ScriptErrorString called with null serror pointer
+   - **Algorithm ID Fix**: Fixed quantum signatures missing algorithm ID prefix for P2WSH transactions
+     - Sign.cpp now prepends algorithm ID (0x02 for ML-DSA, 0x03 for SLH-DSA) to signatures
+     - This matches what EvalChecksigQuantum expects during verification
 
 ### Next Critical Steps
 
-1. **Complete Testing**: Verify full quantum transaction cycle works end-to-end
-2. **Address Legacy Issues**: Old addresses created before the fix still have wrong pubkeys
-3. **Integration Testing**: Full end-to-end testing on testnet
+1. ✅ **Complete Testing**: Full quantum transaction cycle verified working on regtest
+2. **Integration Testing**: Full end-to-end testing on testnet
+3. **Performance Testing**: Verify large signature handling under load
 4. **Documentation**: Update all documentation with completed implementation details
 
 ### Testing Current Implementation

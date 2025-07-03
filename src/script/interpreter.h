@@ -143,7 +143,7 @@ enum : uint32_t {
     // Making unknown public key versions (in BIP 342 scripts) non-standard
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE = (1U << 20),
 
-    // Enable quantum signature verification (OP_CHECKSIG_ML_DSA, OP_CHECKSIG_SLH_DSA, etc.)
+    // Enable quantum signature verification (OP_CHECKSIG_EX, OP_CHECKSIGVERIFY_EX)
     //
     SCRIPT_VERIFY_QUANTUM_SIGS = (1U << 21),
 
@@ -347,6 +347,11 @@ public:
     bool CheckSequence(const CScriptNum& nSequence) const override
     {
         return m_checker.CheckSequence(nSequence);
+    }
+    
+    bool CheckQuantumSignature(const std::vector<unsigned char>& vchSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, uint8_t scheme_id) const override
+    {
+        return m_checker.CheckQuantumSignature(vchSig, vchPubKey, scriptCode, sigversion, scheme_id);
     }
 };
 

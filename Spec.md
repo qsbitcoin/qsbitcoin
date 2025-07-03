@@ -4,6 +4,8 @@
 
 QSBitcoin is a quantum-safe implementation of Bitcoin Core that adds support for post-quantum cryptographic signatures while maintaining full backward compatibility with the existing Bitcoin network. This specification details all technical changes required to implement a compatible quantum-safe Bitcoin client.
 
+**Key Design Decision (July 2, 2025)**: QSBitcoin uses unified opcodes (OP_CHECKSIG_EX and OP_CHECKSIGVERIFY_EX) for all quantum signature algorithms, with the algorithm identified by the first byte of the signature data. This reduces the number of new opcodes from 4 to 2 and provides better extensibility for future quantum algorithms.
+
 ## 1. Cryptographic Primitives
 
 ### 1.1 Signature Algorithms
@@ -85,10 +87,10 @@ class ISignatureScheme {
 
 The following opcodes are introduced via soft fork by repurposing existing NOP opcodes:
 
-- `OP_CHECKSIG_ML_DSA` = 0xb3 (previously OP_NOP4)
-- `OP_CHECKSIG_SLH_DSA` = 0xb4 (previously OP_NOP5)
-- `OP_CHECKSIGVERIFY_ML_DSA` = 0xb5 (previously OP_NOP6)
-- `OP_CHECKSIGVERIFY_SLH_DSA` = 0xb6 (previously OP_NOP7)
+- `OP_CHECKSIG_EX` = 0xb3 (previously OP_NOP4) - Extended checksig for quantum signatures
+- `OP_CHECKSIGVERIFY_EX` = 0xb4 (previously OP_NOP5) - Extended checksig and verify for quantum signatures
+
+These unified opcodes support multiple quantum signature algorithms, with the algorithm determined by the first byte of the signature data. This design allows for future extensibility without requiring additional opcodes.
 
 ### 2.2 Script Verification Flag
 
@@ -102,9 +104,11 @@ This flag enables quantum signature verification when the soft fork is active.
 All quantum addresses use P2WSH (Pay-to-Witness-Script-Hash) format:
 
 ```
-Witness Script: <pubkey> OP_CHECKSIG_[ML_DSA|SLH_DSA]
+Witness Script: <pubkey> OP_CHECKSIG_EX
 ScriptPubKey: OP_0 <32-byte-hash>
 ```
+
+The algorithm is determined from the signature data, not the witness script. This keeps the witness script simple and allows the same script format for all quantum algorithms.
 
 ### 2.4 Transaction Input Format
 
@@ -112,17 +116,19 @@ ScriptPubKey: OP_0 <32-byte-hash>
 
 Quantum signatures in witness data follow this format:
 ```
-[scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pubkey]
+[algorithm_id:1 byte][signature_data][sighash_type:1 byte]
 ```
 
 #### Detailed Format Specification:
-- **scheme_id**: Single byte (0x01 for ECDSA, 0x02 for ML-DSA, 0x03 for SLH-DSA)
-- **sig_len**: Variable-length integer encoding signature size
-- **signature**: Raw signature bytes from quantum algorithm
-- **pubkey_len**: Variable-length integer encoding public key size  
-- **pubkey**: Raw public key bytes
+- **algorithm_id**: Single byte identifying the signature algorithm
+  - 0x02: ML-DSA-65
+  - 0x03: SLH-DSA-192f
+- **signature_data**: Raw signature bytes from quantum algorithm (size varies by algorithm)
+  - ML-DSA-65: ~3309 bytes
+  - SLH-DSA-192f: ~35664 bytes
+- **sighash_type**: Standard Bitcoin sighash type byte
 
-**Implementation Note**: Unlike ECDSA's DER encoding, quantum signatures use raw binary format directly from the cryptographic library.
+**Implementation Note**: The algorithm ID in the signature allows the interpreter to determine how to verify the signature without needing different opcodes for each algorithm.
 
 ## 3. Address Format
 
@@ -139,10 +145,12 @@ No special prefixes distinguish quantum addresses from regular P2WSH addresses.
 
 ```
 1. Generate quantum key pair (ML-DSA or SLH-DSA)
-2. Create witness script: <pubkey> OP_CHECKSIG_[ML_DSA|SLH_DSA]
+2. Create witness script: <pubkey> OP_CHECKSIG_EX
 3. Hash witness script with SHA256
 4. Encode as bech32 P2WSH address
 ```
+
+Note: The algorithm type is not stored in the witness script. It is determined from the signature during verification.
 
 ## 4. Consensus Rules
 
@@ -405,8 +413,9 @@ Implement comprehensive tests for:
 
 ```cpp
 CScript witness_script;
-witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
-// Note: This pushes pubkey with appropriate length prefix (PUSHDATA2 for ML-DSA)
+witness_script << pubkey.GetKeyData() << OP_CHECKSIG_EX;
+// Note: Algorithm ID is NOT included in witness script
+// It is extracted from the signature during verification
 ```
 
 ### 13.3 Witness Corruption Prevention
@@ -450,7 +459,8 @@ SCRIPT_VERIFY_QUANTUM_SIGS must be included in:
    - QSBitcoin: ISignatureScheme interface for algorithm independence
 
 2. **Script Validation Changes**
-   - New function: `EvalChecksigQuantum()` handles quantum opcodes
+   - New function: `EvalChecksigQuantum()` handles unified quantum opcode
+   - Extracts algorithm ID from signature data to determine verification method
    - Requires SCRIPT_VERIFY_QUANTUM_SIGS flag when soft fork active
    - Quantum opcodes are NOPs when flag not set (backward compatible)
 
@@ -478,7 +488,8 @@ To create a compatible implementation with a different quantum library:
 2. **Script Interpreter Modifications**
    - Add quantum opcode handlers in script/interpreter.cpp
    - Implement `EvalChecksigQuantum()` function
-   - Parse new signature format with scheme_id
+   - Extract algorithm_id from signature (first byte)
+   - Use unified opcodes OP_CHECKSIG_EX and OP_CHECKSIGVERIFY_EX
 
 3. **Consensus Rules**
    - Add SCRIPT_VERIFY_QUANTUM_SIGS flag
@@ -510,8 +521,9 @@ The reference implementation is available at:
 - Repository: https://github.com/qsbitcoin/qsbitcoin
 - Based on: Bitcoin Core v28.0
 - License: MIT
-- Status: 100% Complete (as of July 2, 2025)
+- Status: 100% Complete with unified opcodes (as of July 2, 2025)
 - Test Coverage: 88 test cases across 16 test files
+- Opcode Consolidation: Reduced from 4 quantum opcodes to 2 unified opcodes
 
 #### Implementation Highlights:
 - Full quantum signature support (ML-DSA-65, SLH-DSA-192f)
@@ -529,41 +541,40 @@ The reference implementation is available at:
 
 ```cpp
 bool EvalChecksigQuantum(const valtype& sig, const valtype& pubkey, 
-                        Script::SignatureScheme scheme, ScriptError* serror) {
-    // 1. Extract scheme_id from signature
+                        opcodetype opcode, ScriptError* serror) {
+    // 1. Extract algorithm_id from signature (first byte)
     if (sig.size() < 1) return false;
-    uint8_t scheme_id = sig[0];
+    uint8_t algo_id = sig[0];
     
-    // 2. Verify scheme matches opcode
-    if ((scheme == MLDSA && scheme_id != 0x02) ||
-        (scheme == SLHDSA && scheme_id != 0x03)) {
-        return false;
+    // 2. Determine expected algorithm from algo_id
+    KeyType expectedKeyType;
+    switch (algo_id) {
+        case 0x02: // ML-DSA
+            expectedKeyType = KeyType::ML_DSA_65;
+            break;
+        case 0x03: // SLH-DSA
+            expectedKeyType = KeyType::SLH_DSA_192F;
+            break;
+        default:
+            return false; // Unknown algorithm
     }
     
-    // 3. Parse signature format
-    size_t pos = 1;
-    uint64_t sig_len = ReadVarInt(sig, pos);
-    vector<uint8_t> sig_data(sig.begin() + pos, sig.begin() + pos + sig_len);
-    pos += sig_len;
+    // 3. Extract signature data and hash type
+    if (sig.size() < 2) return false;
+    uint8_t nHashType = sig.back();
     
-    uint64_t pubkey_len = ReadVarInt(sig, pos);
-    vector<uint8_t> pubkey_data(sig.begin() + pos, sig.begin() + pos + pubkey_len);
+    // Remove algorithm ID and hash type to get pure signature
+    vector<uint8_t> vchSigNoHashType(sig.begin() + 1, sig.end() - 1);
     
-    // 4. Create appropriate signature scheme
-    unique_ptr<ISignatureScheme> signer;
-    if (scheme_id == 0x01) {
-        signer = make_unique<ECDSAScheme>();
-    } else if (scheme_id == 0x02) {
-        signer = make_unique<MLDSAScheme>();
-    } else if (scheme_id == 0x03) {
-        signer = make_unique<SLHDSAScheme>();
-    } else {
+    // 4. Create quantum public key from witness script pubkey
+    CQuantumPubKey quantumPubKey;
+    if (!quantumPubKey.Set(pubkey, expectedKeyType)) {
         return false;
     }
     
     // 5. Verify signature
     uint256 sighash = SignatureHash(scriptCode, txTo, nIn, nHashType, amount);
-    return signer->Verify(sighash, sig_data, pubkey_data);
+    return CQuantumKey::Verify(sighash, vchSigNoHashType, quantumPubKey);
 }
 ```
 
@@ -589,7 +600,7 @@ Signature Size: 35664 bytes (not including sighash byte)
 ```
 Algorithm: ML-DSA-65
 Address (Regtest): bcrt1q...  (64 characters)
-Witness Script: <1952-byte-pubkey> OP_CHECKSIG_ML_DSA
+Witness Script: <0x02> <1952-byte-pubkey> OP_CHECKSIG_EX
 Script Hash: SHA256(witness_script)
 ```
 

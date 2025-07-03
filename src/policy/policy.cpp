@@ -310,13 +310,16 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
                     opcodetype opcode;
                     std::vector<unsigned char> vch;
                     
-                    // Get pubkey
-                    if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
-                        // Get opcode
-                        if (script.GetOp(pc, opcode) && 
-                            (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) &&
-                            pc == script.end()) {
-                            is_quantum = true;
+                    // Get algorithm ID (1 byte)
+                    if (script.GetOp(pc, opcode, vch) && vch.size() == 1) {
+                        // Get pubkey
+                        if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
+                            // Get opcode
+                            if (script.GetOp(pc, opcode) && 
+                                (opcode == OP_CHECKSIG_EX) &&
+                                pc == script.end()) {
+                                is_quantum = true;
+                            }
                         }
                     }
                 }

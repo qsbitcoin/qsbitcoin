@@ -43,8 +43,6 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
     // First try to get a quantum key
     const quantum::CQuantumKey* qkey = nullptr;
     if (provider.GetQuantumKey(address, const_cast<quantum::CQuantumKey**>(&qkey)) && qkey) {
-        LogPrintf("CreateSig: Found quantum key for address %s\n", address.ToString());
-        
         // Create quantum signature
         const int hashtype = nHashType == SIGHASH_DEFAULT ? SIGHASH_ALL : nHashType;
         uint256 hash = SignatureHash(scriptCode, m_txto, nIn, hashtype, amount, sigversion, m_txdata);
@@ -52,19 +50,21 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
         // Sign with quantum key - need non-const for signing
         quantum::CQuantumKey* mutable_qkey = const_cast<quantum::CQuantumKey*>(qkey);
         std::vector<unsigned char> qsig;
-        LogPrintf("CreateSig: About to sign with quantum key type=%d\n", (int)mutable_qkey->GetType());
         if (!mutable_qkey->Sign(hash, qsig)) {
-            LogPrintf("CreateSig: Quantum signing failed\n");
             return false;
         }
-        LogPrintf("CreateSig: Quantum signing successful, signature size=%d\n", qsig.size());
         
-        // For witness scripts (P2WSH), we return just the raw signature with hash type
-        // The pubkey will be pushed separately by SignStep
+        // For witness scripts (P2WSH), we need to include the algorithm ID
+        // The verification code expects the signature to start with the algorithm ID
         if (sigversion == SigVersion::WITNESS_V0) {
-            vchSig = qsig;
+            // Prepend algorithm ID to signature
+            uint8_t algo_id = (mutable_qkey->GetType() == quantum::KeyType::ML_DSA_65) ? 
+                            quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
+            vchSig.clear();
+            vchSig.push_back(algo_id);
+            vchSig.insert(vchSig.end(), qsig.begin(), qsig.end());
+            // Add hash type (quantum signatures also need the sighash type appended)
             vchSig.push_back((unsigned char)hashtype);
-            LogPrintf("CreateSig: Created raw quantum signature for witness, size=%d bytes\n", vchSig.size());
             return true;
         }
         
@@ -80,8 +80,6 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
         // Serialize the quantum signature
         quantumSig.Serialize(vchSig);
         vchSig.push_back((unsigned char)hashtype);
-        
-        LogPrintf("CreateSig: Created serialized quantum signature, size=%d bytes\n", vchSig.size());
         return true;
     }
 
@@ -449,6 +447,9 @@ static bool SignTaproot(const SigningProvider& provider, const BaseSignatureCrea
 static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator& creator, const CScript& scriptPubKey,
                      std::vector<valtype>& ret, TxoutType& whichTypeRet, SigVersion sigversion, SignatureData& sigdata)
 {
+    LogPrintf("DEBUG: SignStep called with script size=%d, sigversion=%d, hex=%s\n", 
+              scriptPubKey.size(), (int)sigversion, HexStr(scriptPubKey));
+    
     CScript scriptRet;
     ret.clear();
     std::vector<unsigned char> sig;
@@ -460,36 +461,95 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
     case TxoutType::NONSTANDARD:
         // Check if this is a quantum witness script
         if (sigversion == SigVersion::WITNESS_V0) {
-            // Parse the script to check for quantum opcodes
-            CScript::const_iterator pc = scriptPubKey.begin();
-            std::vector<unsigned char> vchPubKey;
-            opcodetype opcode;
+            LogPrintf("DEBUG: Checking for quantum witness script in NONSTANDARD case\n");
             
-            // Try to match: <pubkey> OP_CHECKSIG_ML_DSA or <pubkey> OP_CHECKSIG_SLH_DSA
-            if (scriptPubKey.GetOp(pc, opcode, vchPubKey) && !vchPubKey.empty() &&
-                scriptPubKey.GetOp(pc, opcode) && 
-                (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) &&
-                pc == scriptPubKey.end()) {
+            // Log first few bytes of the script for debugging
+            if (scriptPubKey.size() >= 10) {
+                std::vector<unsigned char> first_bytes(scriptPubKey.begin(), 
+                    scriptPubKey.begin() + std::min<size_t>(10, scriptPubKey.size()));
+                LogPrintf("DEBUG: First 10 bytes of witness script: %s\n", HexStr(first_bytes));
+            }
+            
+            // Check if script ends with OP_CHECKSIG_EX
+            if (scriptPubKey.size() > 0 && scriptPubKey[scriptPubKey.size() - 1] == OP_CHECKSIG_EX) {
+                LogPrintf("DEBUG: Script ends with OP_CHECKSIG_EX, likely quantum script\n");
                 
-                // This is a quantum witness script
-                quantum::KeyType keyType = (opcode == OP_CHECKSIG_ML_DSA) ? 
-                    quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
-                quantum::CQuantumPubKey qPubKey(keyType, vchPubKey);
+                // Parse the script to extract algorithm ID and pubkey
+                CScript::const_iterator pc = scriptPubKey.begin();
+                std::vector<unsigned char> vchData;
+                opcodetype opcode;
                 
-                if (qPubKey.IsValid()) {
-                    CKeyID keyID = qPubKey.GetID();
+                // The script format might be:
+                // 1. <0x01><algo_id> <OP_PUSHDATA2><size><pubkey> <OP_CHECKSIG_EX>
+                // OR
+                // 2. <OP_PUSHDATA2><size><pubkey> <OP_CHECKSIG_EX> (with algo determined from pubkey size)
+                
+                // First, try to get the first element
+                if (scriptPubKey.GetOp(pc, opcode, vchData)) {
+                    LogPrintf("DEBUG: First GetOp: opcode=%02x, data_size=%d\n", opcode, vchData.size());
                     
-                    // Create signature using the quantum key
-                    if (!creator.CreateSig(provider, sig, keyID, scriptPubKey, sigversion)) {
-                        return false;
+                    uint8_t algo_id = 0;
+                    std::vector<unsigned char> vchPubKey;
+                    
+                    if (vchData.size() == 1) {
+                        // Format 1: algorithm ID is separate
+                        algo_id = vchData[0];
+                        LogPrintf("DEBUG: Found separate algorithm ID: %d\n", (int)algo_id);
+                        
+                        // Get the pubkey
+                        if (scriptPubKey.GetOp(pc, opcode, vchPubKey)) {
+                            LogPrintf("DEBUG: Got pubkey, size=%d\n", vchPubKey.size());
+                        }
+                    } else if (vchData.size() == 1952) {
+                        // Format 2: ML-DSA pubkey directly
+                        algo_id = quantum::SCHEME_ML_DSA_65;
+                        vchPubKey = vchData;
+                        LogPrintf("DEBUG: Detected ML-DSA from pubkey size\n");
+                    } else if (vchData.size() > 30000) {
+                        // Format 2: SLH-DSA pubkey directly
+                        algo_id = quantum::SCHEME_SLH_DSA_192F;
+                        vchPubKey = vchData;
+                        LogPrintf("DEBUG: Detected SLH-DSA from pubkey size\n");
                     }
                     
-                    // For P2WSH witness scripts, only push the signature
-                    // The pubkey is already embedded in the witness script itself
-                    LogPrintf("DEBUG: Quantum witness - pushing sig size=%d\n", sig.size());
-                    ret.push_back(std::move(sig));
-                    LogPrintf("DEBUG: Quantum witness - ret now has %d elements\n", ret.size());
-                    return true;
+                    if (algo_id != 0 && !vchPubKey.empty()) {
+                        LogPrintf("DEBUG: Quantum witness script found - algo_id=%d, pubkey_size=%d\n", 
+                                 (int)algo_id, vchPubKey.size());
+                        
+                        // Determine the key type
+                        quantum::KeyType keyType;
+                        if (algo_id == quantum::SCHEME_ML_DSA_65) {
+                            keyType = quantum::KeyType::ML_DSA_65;
+                        } else if (algo_id == quantum::SCHEME_SLH_DSA_192F) {
+                            keyType = quantum::KeyType::SLH_DSA_192F;
+                        } else {
+                            LogPrintf("DEBUG: Unknown quantum algorithm ID: %d\n", (int)algo_id);
+                            return false;
+                        }
+                        
+                        // Create quantum public key
+                        quantum::CQuantumPubKey qPubKey(keyType, vchPubKey);
+                        
+                        if (qPubKey.IsValid()) {
+                            CKeyID keyID = qPubKey.GetID();
+                            LogPrintf("DEBUG: Quantum pubkey is valid, keyID=%s\n", keyID.ToString());
+                            
+                            // Create signature using the quantum key
+                            if (!creator.CreateSig(provider, sig, keyID, scriptPubKey, sigversion)) {
+                                LogPrintf("DEBUG: Quantum witness - Failed to create signature for keyID=%s\n", keyID.ToString());
+                                return false;
+                            }
+                            
+                            // For P2WSH witness scripts, only push the signature
+                            // The pubkey is already embedded in the witness script itself
+                            LogPrintf("DEBUG: Quantum witness - created signature size=%d for algo_id=%d\n", sig.size(), (int)algo_id);
+                            ret.push_back(std::move(sig));
+                            LogPrintf("DEBUG: Quantum witness - ret now has %d elements\n", ret.size());
+                            return true;
+                        } else {
+                            LogPrintf("DEBUG: Quantum pubkey is invalid\n");
+                        }
+                    }
                 }
             }
         }
@@ -626,9 +686,9 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         sigdata.witness_script = witnessscript;
 
         TxoutType subType{TxoutType::NONSTANDARD};
-        LogPrintf("DEBUG: ProduceSignature - calling SignStep for witness script\n");
+        LogPrintf("DEBUG: ProduceSignature - calling SignStep for witness script, script_size=%d\n", witnessscript.size());
         solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata) && subType != TxoutType::SCRIPTHASH && subType != TxoutType::WITNESS_V0_SCRIPTHASH && subType != TxoutType::WITNESS_V0_KEYHASH;
-        LogPrintf("DEBUG: ProduceSignature - SignStep returned, solved=%d, result size=%d\n", solved, result.size());
+        LogPrintf("DEBUG: ProduceSignature - SignStep returned, solved=%d, result size=%d, subType=%d\n", solved, result.size(), (int)subType);
 
         // If we couldn't find a solution with the legacy satisfier, try satisfying the script using Miniscript.
         // Note we need to check if the result stack is empty before, because it might be used even if the Script
@@ -664,7 +724,42 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
 
     // Test solution
     static_assert((STANDARD_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_QUANTUM_SIGS) != 0, "SCRIPT_VERIFY_QUANTUM_SIGS must be in STANDARD_SCRIPT_VERIFY_FLAGS");
-    sigdata.complete = solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, creator.Checker());
+    if (solved) {
+        LogPrintf("DEBUG: ProduceSignature - Verifying script, scriptSig size=%d, witness stack size=%d\n", 
+                  sigdata.scriptSig.size(), sigdata.scriptWitness.stack.size());
+        for (size_t i = 0; i < sigdata.scriptWitness.stack.size(); i++) {
+            LogPrintf("DEBUG: ProduceSignature - Witness stack[%d] size=%d\n", i, sigdata.scriptWitness.stack[i].size());
+        }
+        // Debug: Print the witness script if available
+        if (sigdata.witness && sigdata.scriptWitness.stack.size() >= 2) {
+            const auto& witnessScript = sigdata.scriptWitness.stack.back();
+            LogPrintf("DEBUG: ProduceSignature - Witness script in verification, size=%d\n", witnessScript.size());
+            if (witnessScript.size() < 100) {
+                LogPrintf("DEBUG: ProduceSignature - Witness script hex: %s\n", HexStr(witnessScript));
+            }
+            // Check if it's a quantum witness script
+            if (witnessScript.size() > 3) {
+                CScript script(witnessScript.begin(), witnessScript.end());
+                CScript::const_iterator pc = script.begin();
+                opcodetype opcode;
+                std::vector<unsigned char> vch;
+                if (script.GetOp(pc, opcode, vch)) {
+                    LogPrintf("DEBUG: ProduceSignature - First op in witness script: opcode=%d, data size=%d\n", opcode, vch.size());
+                }
+            }
+        }
+        
+        LogPrintf("DEBUG: ProduceSignature - Calling VerifyScript with checker type: %s\n", typeid(creator.Checker()).name());
+        ScriptError serror;
+        bool verify_result = VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, creator.Checker(), &serror);
+        LogPrintf("DEBUG: ProduceSignature - VerifyScript result: %d\n", verify_result);
+        if (!verify_result) {
+            LogPrintf("DEBUG: ProduceSignature - VerifyScript error: %s (code=%d)\n", ScriptErrorString(serror), (int)serror);
+        }
+        sigdata.complete = verify_result;
+    } else {
+        sigdata.complete = false;
+    }
     return sigdata.complete;
 }
 

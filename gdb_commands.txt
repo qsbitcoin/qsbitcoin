@@ -1,0 +1,3 @@
+run -regtest -fallbackfee=0.00001
+bt
+quit

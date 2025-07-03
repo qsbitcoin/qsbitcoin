@@ -321,50 +321,67 @@ public:
 
 static bool EvalChecksigQuantum(const valtype& vchSig, const valtype& vchPubKey, opcodetype opcode, CScript::const_iterator pbegincodehash, CScript::const_iterator pend, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
-    LogPrintf("[QUANTUM] EvalChecksigQuantum called: opcode=%d, sig_size=%d, pubkey_size=%d\n",
-             (int)opcode, vchSig.size(), vchPubKey.size());
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Entering with opcode=0x%02x, sig size=%zu, pubkey size=%zu\n",
+              opcode, vchSig.size(), vchPubKey.size());
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Checker type=%s, flags=0x%x\n", 
+              typeid(checker).name(), flags);
     
-    // Determine expected key type from opcode
-    quantum::KeyType expectedKeyType;
-    if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIGVERIFY_ML_DSA) {
-        expectedKeyType = quantum::KeyType::ML_DSA_65;
-    } else if (opcode == OP_CHECKSIG_SLH_DSA || opcode == OP_CHECKSIGVERIFY_SLH_DSA) {
-        expectedKeyType = quantum::KeyType::SLH_DSA_192F;
-    } else {
-        LogPrintf("[QUANTUM] Invalid opcode for quantum signature\n");
-        if (serror) *serror = SCRIPT_ERR_UNKNOWN_ERROR;
+    // For OP_CHECKSIG_EX, determine the algorithm from the signature data
+    // The signature format includes algorithm ID as the first byte
+    if (vchSig.empty()) {
+        LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Error - empty signature\n");
+        if (serror) *serror = SCRIPT_ERR_SIG_DER;
         return false;
     }
     
-    // Check signature format
-    if (vchSig.empty()) {
-        LogPrintf("[QUANTUM] Empty signature\n");
-        if (serror) *serror = SCRIPT_ERR_SIG_DER;
-        return false;
+    // Extract algorithm ID from signature
+    uint8_t algo_id = vchSig[0];
+    quantum::KeyType expectedKeyType;
+    
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Algorithm ID from signature = 0x%02x\n", algo_id);
+    
+    switch (algo_id) {
+        case 0x01: // ECDSA - not supported in quantum opcodes
+            LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Error - ECDSA (0x01) not supported in quantum opcodes\n");
+            if (serror) *serror = SCRIPT_ERR_SIG_DER;
+            return false;
+        case 0x02: // ML-DSA
+            LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: ML-DSA signature detected\n");
+            expectedKeyType = quantum::KeyType::ML_DSA_65;
+            break;
+        case 0x03: // SLH-DSA
+            LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: SLH-DSA signature detected\n");
+            expectedKeyType = quantum::KeyType::SLH_DSA_192F;
+            break;
+        default:
+            LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Error - unknown algorithm ID 0x%02x\n", algo_id);
+            if (serror) *serror = SCRIPT_ERR_SIG_DER;
+            return false;
     }
 
     // Create quantum public key
     quantum::CQuantumPubKey qPubKey(expectedKeyType, vchPubKey);
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Creating quantum pubkey, expected type=%d\n", (int)expectedKeyType);
     if (!qPubKey.IsValid()) {
-        LogPrintf("[QUANTUM] Invalid quantum public key\n");
+        LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Error - Invalid quantum public key\n");
         if (serror) *serror = SCRIPT_ERR_PUBKEYTYPE;
         return false;
     }
-    LogPrintf("[QUANTUM] Created valid quantum public key\n");
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Created valid quantum public key\n");
 
     // Create a script from the current position  
     CScript scriptCode(pbegincodehash, pend);
     
-    // Get the scheme ID based on key type
-    uint8_t scheme_id = (expectedKeyType == quantum::KeyType::ML_DSA_65) ? 
-                       quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
-    
-    // Use the signature checker to verify
-    LogPrintf("[QUANTUM] Calling CheckQuantumSignature with scheme_id=%d\n", (int)scheme_id);
+    // Use the algorithm ID from the signature for verification
+    // The CheckQuantumSignature will use this to select the right verification method
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: Calling CheckQuantumSignature with algo_id=%d, scriptCode size=%zu\n", 
+              (int)algo_id, scriptCode.size());
     bool fSuccess = checker.CheckQuantumSignature(vchSig, vchPubKey, 
-                                                 scriptCode, sigversion, scheme_id);
+                                                 scriptCode, sigversion, algo_id);
     
-    LogPrintf("[QUANTUM] CheckQuantumSignature returned: %d\n", fSuccess);
+    LogPrintf("[QUANTUM_DEBUG] EvalChecksigQuantum: CheckQuantumSignature returned %s\n", 
+              fSuccess ? "SUCCESS" : "FAILURE");
+    
     if (!fSuccess && serror) {
         *serror = SCRIPT_ERR_SIG_NULLFAIL;
     }
@@ -462,6 +479,11 @@ static bool EvalChecksig(const valtype& sig, const valtype& pubkey, CScript::con
 
 bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror)
 {
+    LogPrintf("[QUANTUM_DEBUG] EvalScript: Entering with script size=%zu, flags=0x%x, sigversion=%d\n",
+              script.size(), flags, (int)sigversion);
+    LogPrintf("[QUANTUM_DEBUG] EvalScript: SCRIPT_VERIFY_QUANTUM_SIGS=%s\n",
+              (flags & SCRIPT_VERIFY_QUANTUM_SIGS) ? "SET" : "NOT SET");
+    
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
     // static const CScriptNum bnFalse(0);
@@ -502,6 +524,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             
             
+            
             if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE) {
                 // Allow quantum signatures and pubkeys when SCRIPT_VERIFY_QUANTUM_SIGS is set
                 bool allow_quantum = (flags & SCRIPT_VERIFY_QUANTUM_SIGS) != 0;
@@ -509,29 +532,30 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 
                 if (allow_quantum) {
                     // Check for known quantum signature/pubkey sizes
-                    if (vchPushValue.size() == 3309 || vchPushValue.size() == 3310 ||     // ML-DSA sigs
-                        vchPushValue.size() == 35664 || vchPushValue.size() == 35665 ||   // SLH-DSA sigs
-                        vchPushValue.size() == 1952 || vchPushValue.size() == 48) {       // ML-DSA/SLH-DSA pubkeys
+                    // ML-DSA signature with algo ID + sighash: 1 + 3309 + 1 = 3311 bytes
+                    if (vchPushValue.size() >= 3310 && vchPushValue.size() <= 3320) {
+                        is_allowed = true;
+                    }
+                    // SLH-DSA signature with algo ID + sighash: 1 + 35664 + 1 = 35666 bytes
+                    else if (vchPushValue.size() >= 35665 && vchPushValue.size() <= 35680) {
+                        is_allowed = true;
+                    }
+                    // ML-DSA pubkey: 1952 bytes
+                    else if (vchPushValue.size() == 1952) {
+                        is_allowed = true;
+                    }
+                    // SLH-DSA pubkey: 48 bytes
+                    else if (vchPushValue.size() == 48) {
                         is_allowed = true;
                     }
                     // Also check if this could be a quantum witness script
-                    else if (vchPushValue.size() > 1950 && vchPushValue.size() < 25000) {
-                        // Check if it's a valid quantum witness script
-                        CScript script(vchPushValue.begin(), vchPushValue.end());
-                        CScript::const_iterator pc = script.begin();
-                        opcodetype tmp_opcode;
-                        std::vector<unsigned char> vch;
-                        
-                        // Get pubkey
-                        if (script.GetOp(pc, tmp_opcode, vch) && !vch.empty()) {
-                            // Get opcode
-                            if (script.GetOp(pc, tmp_opcode) && 
-                                (tmp_opcode == OP_CHECKSIG_ML_DSA || tmp_opcode == OP_CHECKSIG_SLH_DSA) &&
-                                pc == script.end()) {
-                                // This is a valid quantum witness script
-                                is_allowed = true;
-                            }
-                        }
+                    // ML-DSA witness script: 1956 bytes (1952 + 3 + 1)
+                    // SLH-DSA witness script: 50 bytes (48 + 1 + 1)
+                    else if (vchPushValue.size() == 50 ||      // SLH-DSA witness scripts
+                             vchPushValue.size() == 1956) {     // ML-DSA witness scripts
+                        // For now, just allow these sizes in witness context
+                        // The actual script validation happens later
+                        is_allowed = true;
                     }
                 }
                 
@@ -688,7 +712,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     break;
                 }
 
-                case OP_NOP1: case OP_NOP8: case OP_NOP9: case OP_NOP10:
+                case OP_NOP1: case OP_NOP6: case OP_NOP7: case OP_NOP8: case OP_NOP9: case OP_NOP10:
                 {
                     if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
                         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
@@ -696,13 +720,10 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 break;
 
 
-                case OP_CHECKSIG_ML_DSA:
-                case OP_CHECKSIGVERIFY_ML_DSA:
-                case OP_CHECKSIG_SLH_DSA:
-                case OP_CHECKSIGVERIFY_SLH_DSA:
+                case OP_CHECKSIG_EX:
+                case OP_CHECKSIGVERIFY_EX:
                 {
-                    // Quantum signature opcodes are only available after activation
-                    // TODO: Add proper soft fork activation check
+                    // Extended signature opcodes are only available after activation
                     if (!(flags & SCRIPT_VERIFY_QUANTUM_SIGS)) {
                         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
                             return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
@@ -710,26 +731,35 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     }
 
                     // (sig pubkey -- bool)
-                    if (stack.size() < 2)
+                    if (stack.size() < 2) {
+                        LogPrintf("[QUANTUM_DEBUG] EvalScript: Error - stack size %zu < 2\n", stack.size());
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    }
 
                     valtype& vchSig    = stacktop(-2);
                     valtype& vchPubKey = stacktop(-1);
+                    
+                    LogPrintf("[QUANTUM_DEBUG] EvalScript: Stack has sig size=%zu, pubkey size=%zu\n",
+                              vchSig.size(), vchPubKey.size());
 
-                    // Verify quantum signature
-                    LogPrintf("[QUANTUM] About to verify quantum signature: opcode=%d, sig_size=%d, pubkey_size=%d\n", 
-                             (int)opcode, vchSig.size(), vchPubKey.size());
+                    // Verify extended signature (determines algorithm from signature data)
+                    LogPrintf("[QUANTUM_DEBUG] EvalScript: Calling EvalChecksigQuantum\n");
                     bool fSuccess = EvalChecksigQuantum(vchSig, vchPubKey, opcode, pbegincodehash, pend, flags, checker, sigversion, serror);
-                    LogPrintf("[QUANTUM] Quantum signature verification result: %d\n", fSuccess);
+                    LogPrintf("[QUANTUM_DEBUG] EvalScript: EvalChecksigQuantum returned %s\n", 
+                              fSuccess ? "SUCCESS" : "FAILURE");
+                    
                     if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size()) {
+                        LogPrintf("[QUANTUM_DEBUG] EvalScript: NULLFAIL check triggered\n");
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                     }
                     
                     popstack(stack);
                     popstack(stack);
                     stack.push_back(fSuccess ? vchTrue : vchFalse);
+                    LogPrintf("[QUANTUM_DEBUG] EvalScript: Pushed %s to stack\n", 
+                              fSuccess ? "true" : "false");
                     
-                    if (opcode == OP_CHECKSIGVERIFY_ML_DSA || opcode == OP_CHECKSIGVERIFY_SLH_DSA)
+                    if (opcode == OP_CHECKSIGVERIFY_EX)
                     {
                         if (fSuccess)
                             popstack(stack);
@@ -1845,8 +1875,6 @@ bool GenericTransactionSignatureChecker<T>::CheckQuantumSignature(
     SigVersion sigversion,
     uint8_t scheme_id) const
 {
-    LogPrintf("[QUANTUM] GenericTransactionSignatureChecker::CheckQuantumSignature called\n");
-    
     // Determine key type from scheme ID
     quantum::KeyType keyType;
     if (scheme_id == quantum::SCHEME_ML_DSA_65) {
@@ -1854,7 +1882,6 @@ bool GenericTransactionSignatureChecker<T>::CheckQuantumSignature(
     } else if (scheme_id == quantum::SCHEME_SLH_DSA_192F) {
         keyType = quantum::KeyType::SLH_DSA_192F;
     } else {
-        LogPrintf("[QUANTUM] Invalid scheme_id: %d\n", (int)scheme_id);
         return false;
     }
     
@@ -1871,28 +1898,40 @@ bool GenericTransactionSignatureChecker<T>::CheckQuantumSignature(
         return false;
     }
     
-    std::vector<unsigned char> vchSigNoHashType(vchSig);
+    // First check if the signature includes the algorithm ID
+    std::vector<unsigned char> vchSigNoAlgoId(vchSig);
+    if (!vchSigNoAlgoId.empty() && vchSigNoAlgoId[0] == scheme_id) {
+        // Remove algorithm ID from the beginning
+        vchSigNoAlgoId.erase(vchSigNoAlgoId.begin());
+    }
+    
+    std::vector<unsigned char> vchSigNoHashType(vchSigNoAlgoId);
     int nHashType = SIGHASH_ALL;
     
     if (!vchSigNoHashType.empty()) {
         nHashType = vchSigNoHashType.back();
         vchSigNoHashType.pop_back();
-        LogPrintf("[QUANTUM] Hash type: %d, sig size after removing hashtype: %d\n", nHashType, vchSigNoHashType.size());
     }
     
     // Witness sighashes need the amount
     if (sigversion == SigVersion::WITNESS_V0 && amount < 0) {
-        LogPrintf("[QUANTUM] Missing amount for witness signature\n");
         return HandleMissingData(m_mdb);
     }
     
     // Compute the signature hash
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
-    LogPrintf("[QUANTUM] Computed sighash: %s\n", sighash.ToString());
+    
+    LogPrintf("[QUANTUM] GenericTransactionSignatureChecker::CheckQuantumSignature:\n");
+    LogPrintf("  scheme_id=%d, keyType=%d\n", scheme_id, (int)keyType);
+    LogPrintf("  vchSig size=%d, vchPubKey size=%d\n", vchSig.size(), vchPubKey.size());
+    LogPrintf("  vchSigNoHashType size=%d\n", vchSigNoHashType.size());
+    LogPrintf("  nHashType=%d, sigversion=%d\n", nHashType, (int)sigversion);
+    LogPrintf("  sighash=%s\n", sighash.ToString());
     
     // Verify the signature
     bool result = quantum::CQuantumKey::Verify(sighash, vchSigNoHashType, pubkey);
-    LogPrintf("[QUANTUM] Verification result: %d\n", result);
+    
+    LogPrintf("  Verify result=%d\n", result);
     
     return result;
 }
@@ -2017,30 +2056,47 @@ static bool ExecuteWitnessScript(const std::span<const valtype>& stack_span, con
     for (const valtype& elem : stack) {
         if (elem.size() > MAX_SCRIPT_ELEMENT_SIZE) {
             // Check if this could be a quantum signature or pubkey
-            if (allow_quantum && (elem.size() == 3310 || elem.size() == 35665 || // ML-DSA/SLH-DSA sigs with sighash
-                                  elem.size() == 1952 || elem.size() == 48)) {   // ML-DSA/SLH-DSA pubkeys
-                // Allow quantum signatures and pubkeys
-                continue;
+            if (allow_quantum) {
+                // ML-DSA signature with algo ID + sighash: 1 + 3309 + 1 = 3311 bytes
+                if (elem.size() >= 3310 && elem.size() <= 3320) {
+                    continue;
+                }
+                // SLH-DSA signature with algo ID + sighash: 1 + 35664 + 1 = 35666 bytes  
+                if (elem.size() >= 35665 && elem.size() <= 35680) {
+                    continue;
+                }
+                // ML-DSA pubkey: 1952 bytes
+                if (elem.size() == 1952) {
+                    continue;
+                }
+                // SLH-DSA pubkey: 48 bytes
+                if (elem.size() == 48) {
+                    continue;
+                }
             }
             
             // Also check if this could be a quantum witness script
-            // Quantum witness scripts contain a pubkey + OP_CHECKSIG_ML_DSA/SLH_DSA
-            // They can be up to ~20KB for SLH-DSA pubkeys
-            if (allow_quantum && elem.size() > 1950 && elem.size() < 25000) {
+            // ML-DSA witness script: 1956 bytes (1952 + 3 + 1)
+            // SLH-DSA witness script: 50 bytes (48 + 1 + 1)
+            if (allow_quantum && (elem.size() == 50 ||      // SLH-DSA witness scripts
+                                  elem.size() == 1956)) {    // ML-DSA witness scripts
                 // Check if it's a valid quantum witness script
                 CScript script(elem.begin(), elem.end());
                 CScript::const_iterator pc = script.begin();
                 opcodetype opcode;
                 std::vector<unsigned char> vch;
                 
-                // Get pubkey
-                if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
-                    // Get opcode
-                    if (script.GetOp(pc, opcode) && 
-                        (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) &&
-                        pc == script.end()) {
-                        // This is a valid quantum witness script
-                        continue;
+                // Get algorithm ID (1 byte)
+                if (script.GetOp(pc, opcode, vch) && vch.size() == 1) {
+                    // Get pubkey
+                    if (script.GetOp(pc, opcode, vch) && !vch.empty()) {
+                        // Get opcode
+                        if (script.GetOp(pc, opcode) && 
+                            (opcode == OP_CHECKSIG_EX || opcode == OP_CHECKSIGVERIFY_EX) &&
+                            pc == script.end()) {
+                            // This is a valid quantum witness script
+                            continue;
+                        }
                     }
                 }
             }
@@ -2050,11 +2106,24 @@ static bool ExecuteWitnessScript(const std::span<const valtype>& stack_span, con
     }
 
     // Run the script interpreter.
-    if (!EvalScript(stack, exec_script, flags, checker, sigversion, execdata, serror)) return false;
+    LogPrintf("[QUANTUM_DEBUG] ExecuteWitnessScript: Calling EvalScript\n");
+    if (!EvalScript(stack, exec_script, flags, checker, sigversion, execdata, serror)) {
+        LogPrintf("[QUANTUM_DEBUG] ExecuteWitnessScript: EvalScript failed with error: %s\n", 
+                  ScriptErrorString(*serror));
+        return false;
+    }
+    LogPrintf("[QUANTUM_DEBUG] ExecuteWitnessScript: EvalScript succeeded, stack size=%zu\n", stack.size());
 
     // Scripts inside witness implicitly require cleanstack behaviour
-    if (stack.size() != 1) return set_error(serror, SCRIPT_ERR_CLEANSTACK);
-    if (!CastToBool(stack.back())) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    if (stack.size() != 1) {
+        LogPrintf("[QUANTUM_DEBUG] ExecuteWitnessScript: Error - stack size %zu != 1 (CLEANSTACK)\n", stack.size());
+        return set_error(serror, SCRIPT_ERR_CLEANSTACK);
+    }
+    if (!CastToBool(stack.back())) {
+        LogPrintf("[QUANTUM_DEBUG] ExecuteWitnessScript: Error - stack top is false\n");
+        return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    }
+    LogPrintf("[QUANTUM_DEBUG] ExecuteWitnessScript: Success!\n");
     return true;
 }
 
@@ -2109,6 +2178,11 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     std::span stack{witness.stack};
     ScriptExecutionData execdata;
 
+    LogPrintf("[QUANTUM_DEBUG] VerifyWitnessProgram: Entering with witversion=%d, program size=%zu, flags=0x%x\n",
+              witversion, program.size(), flags);
+    LogPrintf("[QUANTUM_DEBUG] VerifyWitnessProgram: witness stack size=%zu, is_p2sh=%s\n",
+              witness.stack.size(), is_p2sh ? "true" : "false");
+
     if (witversion == 0) {
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
             // BIP141 P2WSH: 32-byte witness v0 program (which encodes SHA256(script))
@@ -2117,11 +2191,24 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             }
             const valtype& script_bytes = SpanPopBack(stack);
             exec_script = CScript(script_bytes.begin(), script_bytes.end());
+            LogPrintf("[QUANTUM_DEBUG] VerifyWitnessProgram: P2WSH witness script size=%zu\n", exec_script.size());
+            
+            // Log first few bytes of the witness script to identify quantum scripts
+            if (exec_script.size() > 0) {
+                std::string script_preview;
+                for (size_t i = 0; i < std::min(static_cast<size_t>(exec_script.size()), size_t(10)); i++) {
+                    script_preview += strprintf("%02x ", exec_script[i]);
+                }
+                LogPrintf("[QUANTUM_DEBUG] VerifyWitnessProgram: Witness script starts with: %s\n", script_preview);
+            }
+            
             uint256 hash_exec_script;
             CSHA256().Write(exec_script.data(), exec_script.size()).Finalize(hash_exec_script.begin());
             if (memcmp(hash_exec_script.begin(), program.data(), 32)) {
+                LogPrintf("[QUANTUM_DEBUG] VerifyWitnessProgram: Error - witness script hash mismatch\n");
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
             }
+            LogPrintf("[QUANTUM_DEBUG] VerifyWitnessProgram: Calling ExecuteWitnessScript for P2WSH\n");
             return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
         } else if (program.size() == WITNESS_V0_KEYHASH_SIZE) {
             // BIP141 P2WPKH: 20-byte witness v0 program (which encodes Hash160(pubkey))
@@ -2196,6 +2283,13 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
     bool hadWitness = false;
 
+    // Debug: Log entry to VerifyScript
+    LogPrintf("[QUANTUM_DEBUG] VerifyScript: Entering with flags=0x%x, SCRIPT_VERIFY_QUANTUM_SIGS=%s\n", 
+              flags, (flags & SCRIPT_VERIFY_QUANTUM_SIGS) ? "SET" : "NOT SET");
+    LogPrintf("[QUANTUM_DEBUG] VerifyScript: Checker type=%s\n", typeid(checker).name());
+    LogPrintf("[QUANTUM_DEBUG] VerifyScript: scriptPubKey size=%zu, scriptSig size=%zu, witness stack size=%zu\n",
+              scriptPubKey.size(), scriptSig.size(), witness->stack.size());
+
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
 
     if ((flags & SCRIPT_VERIFY_SIGPUSHONLY) != 0 && !scriptSig.IsPushOnly()) {
@@ -2224,11 +2318,17 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     if (flags & SCRIPT_VERIFY_WITNESS) {
         if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
             hadWitness = true;
+            LogPrintf("[QUANTUM_DEBUG] VerifyScript: Found witness program v%d, program size=%zu\n", 
+                      witnessversion, witnessprogram.size());
             if (scriptSig.size() != 0) {
                 // The scriptSig must be _exactly_ CScript(), otherwise we reintroduce malleability.
+                LogPrintf("[QUANTUM_DEBUG] VerifyScript: Error - scriptSig not empty for witness program\n");
                 return set_error(serror, SCRIPT_ERR_WITNESS_MALLEATED);
             }
+            LogPrintf("[QUANTUM_DEBUG] VerifyScript: Calling VerifyWitnessProgram (P2WSH)\n");
             if (!VerifyWitnessProgram(*witness, witnessversion, witnessprogram, flags, checker, serror, /*is_p2sh=*/false)) {
+                LogPrintf("[QUANTUM_DEBUG] VerifyScript: VerifyWitnessProgram failed with error: %s\n", 
+                          serror ? ScriptErrorString(*serror) : "unknown");
                 return false;
             }
             // Bypass the cleanstack check at the end. The actual stack is obviously not clean

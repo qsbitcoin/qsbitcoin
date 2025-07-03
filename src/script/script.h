@@ -199,13 +199,11 @@ enum opcodetype
     OP_CHECKSEQUENCEVERIFY = 0xb2,
     OP_NOP3 = OP_CHECKSEQUENCEVERIFY,
     OP_NOP4 = 0xb3,
-    OP_CHECKSIG_ML_DSA = OP_NOP4,      // Check ML-DSA-65 signature
+    OP_CHECKSIG_EX = OP_NOP4,           // Extended checksig for quantum signatures (ML-DSA, SLH-DSA, etc.)
     OP_NOP5 = 0xb4,
-    OP_CHECKSIG_SLH_DSA = OP_NOP5,     // Check SLH-DSA-192f signature
+    OP_CHECKSIGVERIFY_EX = OP_NOP5,     // Extended checksig and verify for quantum signatures
     OP_NOP6 = 0xb5,
-    OP_CHECKSIGVERIFY_ML_DSA = OP_NOP6, // Check ML-DSA-65 signature and verify
     OP_NOP7 = 0xb6,
-    OP_CHECKSIGVERIFY_SLH_DSA = OP_NOP7, // Check SLH-DSA-192f signature and verify
     OP_NOP8 = 0xb7,
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,

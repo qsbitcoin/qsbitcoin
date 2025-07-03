@@ -10,6 +10,7 @@
 #include <script/sign.h>
 #include <script/signingprovider.h>
 #include <script/quantum_witness.h>
+#include <script/quantum_signature.h>
 #include <crypto/quantum_key.h>
 #include <key.h>
 #include <pubkey.h>
@@ -37,7 +38,10 @@ std::vector<unsigned char> CreateDummyQuantumSignature(size_t total_size, uint8_
     // Reserve space to ensure we hit the exact size
     sig.reserve(total_size);
     
-    // Fill with dummy data to reach the exact size
+    // Prepend the scheme ID
+    sig.push_back(scheme_id);
+    
+    // Fill with dummy data to reach the exact size (minus 1 for scheme_id)
     sig.resize(total_size, 0x01);
     
     // Set the last byte as sighash type
@@ -52,13 +56,13 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
 {
     // Test that quantum signatures can exceed 520-byte limit in witness scripts
     
-    // Create ML-DSA signature (3310 bytes with sighash)
-    std::vector<unsigned char> ml_dsa_sig = CreateDummyQuantumSignature(3310, SCHEME_ML_DSA_65);
-    BOOST_CHECK_EQUAL(ml_dsa_sig.size(), 3310);
+    // Create ML-DSA signature (3311 bytes with algo ID + sighash)
+    std::vector<unsigned char> ml_dsa_sig = CreateDummyQuantumSignature(3311, SCHEME_ML_DSA_65);
+    BOOST_CHECK_EQUAL(ml_dsa_sig.size(), 3311);
     
-    // Create SLH-DSA signature (35665 bytes with sighash)
-    std::vector<unsigned char> slh_dsa_sig = CreateDummyQuantumSignature(35665, SCHEME_SLH_DSA_192F);
-    BOOST_CHECK_EQUAL(slh_dsa_sig.size(), 35665);
+    // Create SLH-DSA signature (35666 bytes with algo ID + sighash)
+    std::vector<unsigned char> slh_dsa_sig = CreateDummyQuantumSignature(35666, SCHEME_SLH_DSA_192F);
+    BOOST_CHECK_EQUAL(slh_dsa_sig.size(), 35666);
     
     // Create quantum pubkeys
     std::vector<unsigned char> ml_dsa_pubkey(1952, 0x02); // ML-DSA pubkey
@@ -67,7 +71,7 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
     // Test 1: ML-DSA witness script execution
     {
         CScript witness_script;
-        witness_script << ml_dsa_pubkey << OP_CHECKSIG_ML_DSA;
+        witness_script << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << ml_dsa_pubkey << OP_CHECKSIG_EX;
         
         std::vector<std::vector<unsigned char>> witness_stack;
         witness_stack.push_back(ml_dsa_sig);
@@ -124,7 +128,7 @@ BOOST_AUTO_TEST_CASE(quantum_push_size_limit_witness_v0)
     // Test 2: SLH-DSA witness script execution
     {
         CScript witness_script;
-        witness_script << slh_dsa_pubkey << OP_CHECKSIG_SLH_DSA;
+        witness_script << std::vector<unsigned char>{quantum::SCHEME_SLH_DSA_192F} << slh_dsa_pubkey << OP_CHECKSIG_EX;
         
         std::vector<std::vector<unsigned char>> witness_stack;
         witness_stack.push_back(slh_dsa_sig);
@@ -228,17 +232,19 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_format)
         
         CScript witness_script = CreateQuantumWitnessScript(pubkey);
         
-        // Verify script format: <pubkey> OP_CHECKSIG_ML_DSA
+        // Verify script format: <pubkey> OP_CHECKSIG_EX
         CScript::const_iterator pc = witness_script.begin();
         opcodetype opcode;
         std::vector<unsigned char> vch_pubkey;
         
+        // First element should be pubkey
         BOOST_CHECK(witness_script.GetOp(pc, opcode, vch_pubkey));
         BOOST_CHECK(opcode <= OP_PUSHDATA4); // Should be a push
         BOOST_CHECK_EQUAL(vch_pubkey.size(), pubkey.GetKeyData().size());
         
+        // Second element should be OP_CHECKSIG_EX
         BOOST_CHECK(witness_script.GetOp(pc, opcode));
-        BOOST_CHECK_EQUAL(opcode, OP_CHECKSIG_ML_DSA);
+        BOOST_CHECK_EQUAL(opcode, OP_CHECKSIG_EX);
         
         BOOST_CHECK(pc == witness_script.end());
     }
@@ -251,17 +257,19 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_format)
         
         CScript witness_script = CreateQuantumWitnessScript(pubkey);
         
-        // Verify script format: <pubkey> OP_CHECKSIG_SLH_DSA
+        // Verify script format: <pubkey> OP_CHECKSIG_EX
         CScript::const_iterator pc = witness_script.begin();
         opcodetype opcode;
         std::vector<unsigned char> vch_pubkey;
         
+        // First element should be pubkey
         BOOST_CHECK(witness_script.GetOp(pc, opcode, vch_pubkey));
         BOOST_CHECK(opcode <= OP_PUSHDATA4); // Should be a push
         BOOST_CHECK_EQUAL(vch_pubkey.size(), pubkey.GetKeyData().size());
         
+        // Second element should be OP_CHECKSIG_EX
         BOOST_CHECK(witness_script.GetOp(pc, opcode));
-        BOOST_CHECK_EQUAL(opcode, OP_CHECKSIG_SLH_DSA);
+        BOOST_CHECK_EQUAL(opcode, OP_CHECKSIG_EX);
         
         BOOST_CHECK(pc == witness_script.end());
     }
@@ -283,7 +291,7 @@ BOOST_AUTO_TEST_CASE(quantum_mixed_signature_script)
     // Create a 2-of-2 multisig-like script (one ECDSA, one quantum)
     CScript script;
     script << OP_DUP << ecdsa_pubkey << OP_CHECKSIGVERIFY;
-    script << quantum_pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+    script << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << quantum_pubkey.GetKeyData() << OP_CHECKSIG_EX;
     
     // This script should be valid with SCRIPT_VERIFY_QUANTUM_SIGS
     // (actual execution would require proper signatures)

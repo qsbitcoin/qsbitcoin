@@ -53,7 +53,19 @@ bool HidingSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tap
     return m_provider->GetTaprootBuilder(output_key, builder);
 }
 
-bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
+bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const {
+    LogPrintf("[PROVIDER] GetCScript called for scriptid %s\n", scriptid.ToString());
+    bool found = LookupHelper(scripts, scriptid, script);
+    if (found) {
+        LogPrintf("[PROVIDER] Found script: %s\n", HexStr(script));
+    } else {
+        LogPrintf("[PROVIDER] Script not found. Available scripts:\n");
+        for (const auto& [id, s] : scripts) {
+            LogPrintf("[PROVIDER]   %s -> %s\n", id.ToString(), HexStr(s));
+        }
+    }
+    return found;
+}
 bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
 bool FlatSigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const
 {

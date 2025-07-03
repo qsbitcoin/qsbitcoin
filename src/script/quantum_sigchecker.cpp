@@ -82,7 +82,10 @@ bool QuantumTransactionSignatureChecker<T>::CheckQuantumSignature(
     
     if (vchSig.size() > 0) {
         nHashType = vchSig.back();
-        vchSigNoHashType.assign(vchSig.begin(), vchSig.end() - 1);
+        // Remove first byte (algorithm ID) and last byte (hash type)
+        if (vchSig.size() > 2) {
+            vchSigNoHashType.assign(vchSig.begin() + 1, vchSig.end() - 1);
+        }
     }
     
     // Compute the signature hash using our stored member variables

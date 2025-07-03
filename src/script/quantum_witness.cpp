@@ -14,26 +14,17 @@ CScript CreateQuantumWitnessScript(const CQuantumPubKey& pubkey)
 {
     CScript script;
     
-    // Simple witness script format for quantum:
-    // <pubkey> OP_CHECKSIG_[ML_DSA|SLH_DSA]
+    // Witness script format for quantum with unified opcode:
+    // <pubkey> OP_CHECKSIG_EX
     // 
-    // This is more efficient than P2PKH-style scripts in witness context
-    // since the witness script is revealed during spending anyway.
+    // The algorithm is determined from the signature data (first byte)
+    // which contains the scheme ID:
+    // 0x02 = ML-DSA-65
+    // 0x03 = SLH-DSA-192f
     
+    // Just add public key and unified opcode
     script << pubkey.GetKeyData();
-    
-    switch (pubkey.GetType()) {
-        case KeyType::ML_DSA_65:
-            script << OP_CHECKSIG_ML_DSA;
-            break;
-        case KeyType::SLH_DSA_192F:
-            script << OP_CHECKSIG_SLH_DSA;
-            break;
-        default:
-            LogPrintf("Warning: CreateQuantumWitnessScript called with non-quantum key type\n");
-            script << OP_CHECKSIG;
-            break;
-    }
+    script << OP_CHECKSIG_EX;
     
     return script;
 }
@@ -61,6 +52,7 @@ bool ExtractQuantumPubKeyFromWitnessScript(const CScript& witnessScript,
                                            CQuantumPubKey& pubkey)
 {
     // Parse the witness script
+    // Format: <pubkey> OP_CHECKSIG_EX
     CScript::const_iterator pc = witnessScript.begin();
     CScript::const_iterator end = witnessScript.end();
     
@@ -77,20 +69,24 @@ bool ExtractQuantumPubKeyFromWitnessScript(const CScript& witnessScript,
         return false;
     }
     
-    // Next should be quantum checksig opcode
+    // Next should be OP_CHECKSIG_EX
     if (pc == end) {
         return false;
     }
     
     opcode = static_cast<opcodetype>(*pc);
+    if (opcode != OP_CHECKSIG_EX) {
+        return false;
+    }
     
-    // Determine key type from opcode
+    // Determine key type from pubkey size
     KeyType keyType;
-    if (opcode == OP_CHECKSIG_ML_DSA) {
+    if (vchPubKey.size() == 1952) {
         keyType = KeyType::ML_DSA_65;
-    } else if (opcode == OP_CHECKSIG_SLH_DSA) {
+    } else if (vchPubKey.size() == 48) {
         keyType = KeyType::SLH_DSA_192F;
     } else {
+        LogPrintf("Unknown quantum pubkey size: %d\n", vchPubKey.size());
         return false;
     }
     
@@ -179,32 +175,27 @@ bool ParseQuantumWitnessStack(const std::vector<std::vector<unsigned char>>& sta
 
 SignatureSchemeID GetQuantumSchemeFromWitnessScript(const CScript& witnessScript)
 {
-    // Parse to find the quantum opcode
+    // Parse to find the pubkey size which determines the algorithm
+    // Format: <pubkey> OP_CHECKSIG_EX
     CScript::const_iterator pc = witnessScript.begin();
     CScript::const_iterator end = witnessScript.end();
     
     opcodetype opcode;
-    std::vector<unsigned char> vchPush;
+    std::vector<unsigned char> vchPubKey;
     
-    // Skip the pubkey push
-    if (!witnessScript.GetOp(pc, opcode, vchPush)) {
+    // First element should be the pubkey
+    if (!witnessScript.GetOp(pc, opcode, vchPubKey)) {
         return SCHEME_ECDSA;
     }
     
-    // Get the checksig opcode
-    if (pc == end) {
-        return SCHEME_ECDSA;
-    }
-    
-    opcode = static_cast<opcodetype>(*pc);
-    
-    if (opcode == OP_CHECKSIG_ML_DSA) {
+    // Determine scheme from pubkey size
+    if (vchPubKey.size() == 1952) {
         return SCHEME_ML_DSA_65;
-    } else if (opcode == OP_CHECKSIG_SLH_DSA) {
+    } else if (vchPubKey.size() == 48) {
         return SCHEME_SLH_DSA_192F;
+    } else {
+        return SCHEME_ECDSA;
     }
-    
-    return SCHEME_ECDSA;
 }
 
 } // namespace quantum

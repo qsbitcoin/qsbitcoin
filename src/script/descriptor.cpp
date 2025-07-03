@@ -596,7 +596,8 @@ public:
         CKeyID keyid = m_pubkey.GetID();
         std::vector<unsigned char> dummy_data(33, 0);
         dummy_data[0] = 0x02; // Compressed pubkey prefix
-        std::copy(keyid.begin(), keyid.begin() + 32, dummy_data.begin() + 1);
+        // CKeyID is only 20 bytes, so copy those and pad with zeros
+        std::copy(keyid.begin(), keyid.end(), dummy_data.begin() + 1);
         m_dummy_pubkey.Set(dummy_data.begin(), dummy_data.end());
     }
 
@@ -976,20 +977,22 @@ protected:
             return {}; // Failed to get quantum pubkey
         }
         
-        // Create witness script: <quantum_pubkey> OP_CHECKSIG_ML_DSA/SLH_DSA
+        // Create witness script: <algorithm_id:1 byte> <quantum_pubkey> OP_CHECKSIG_EX
         CScript witnessScript;
-        witnessScript << qpubkey.GetKeyData();
         
         switch (qpubkey.GetType()) {
             case quantum::KeyType::ML_DSA_65:
-                witnessScript << OP_CHECKSIG_ML_DSA;
+                witnessScript << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65};
                 break;
             case quantum::KeyType::SLH_DSA_192F:
-                witnessScript << OP_CHECKSIG_SLH_DSA;
+                witnessScript << std::vector<unsigned char>{quantum::SCHEME_SLH_DSA_192F};
                 break;
             default:
                 return {}; // Invalid quantum key type
         }
+        
+        witnessScript << qpubkey.GetKeyData();
+        witnessScript << OP_CHECKSIG_EX;
         
         return Vector(std::move(witnessScript));
     }
@@ -1109,20 +1112,23 @@ protected:
         quantum::CQuantumPubKey qpubkey = quantum_provider->GetQuantumPubKey();
         LogPrintf("[QUANTUM] Got quantum pubkey, type=%d, valid=%d\n", (int)qpubkey.GetType(), qpubkey.IsValid());
         
-        // Create witness script for quantum key: <pubkey> OP_CHECKSIG_[ML_DSA/SLH_DSA]
+        // Create witness script for quantum key: <algorithm_id:1 byte> <pubkey> OP_CHECKSIG_EX
         CScript witnessScript;
-        witnessScript << qpubkey.GetKeyData();
         
         if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
-            witnessScript << OP_CHECKSIG_ML_DSA;
+            witnessScript << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65};
             LogPrintf("[QUANTUM] Created ML-DSA-65 witness script\n");
         } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
-            witnessScript << OP_CHECKSIG_SLH_DSA;
+            witnessScript << std::vector<unsigned char>{quantum::SCHEME_SLH_DSA_192F};
             LogPrintf("[QUANTUM] Created SLH-DSA-192f witness script\n");
         } else {
             LogPrintf("[QUANTUM] Unknown scheme ID: %d\n", quantum_provider->GetSchemeId());
             return {}; // Unknown scheme
         }
+        
+        // Add pubkey data - the << operator will use appropriate push operations
+        witnessScript << qpubkey.GetKeyData();
+        witnessScript << OP_CHECKSIG_EX;
         
         // Create P2WSH script: OP_0 <32-byte-hash>
         uint256 hash;
@@ -1154,21 +1160,60 @@ public:
     std::optional<int64_t> MaxSatSize(bool use_max_sig) const override {
         // For P2WSH, this is the size of the witness stack items
         auto* quantum_provider = dynamic_cast<const QuantumPubkeyProvider*>(m_pubkey_args[0].get());
-        if (!quantum_provider) return std::nullopt;
+        if (!quantum_provider) {
+            LogPrintf("[QUANTUM] MaxSatSize: Failed to cast to QuantumPubkeyProvider\n");
+            return std::nullopt;
+        }
         
-        // Witness stack contains: signature, pubkey, witness script
+        // Witness stack contains: signature, witness script
         size_t sig_size = 0;
         if (quantum_provider->GetSchemeId() == quantum::SCHEME_ML_DSA_65) {
             sig_size = 3309 + 1; // ML-DSA-65 signature + sighash byte
         } else if (quantum_provider->GetSchemeId() == quantum::SCHEME_SLH_DSA_192F) {
             sig_size = 35664 + 1; // SLH-DSA-192f signature + sighash byte
+        } else {
+            LogPrintf("[QUANTUM] MaxSatSize: Unknown scheme ID %d\n", quantum_provider->GetSchemeId());
+            return std::nullopt; // Unknown scheme
         }
         
+        // Calculate actual witness script size including push operations
         size_t pubkey_size = quantum_provider->GetSize();
-        size_t witness_script_size = 1 + pubkey_size + 1; // push + pubkey + opcode
+        // Witness script: <1 byte algo_id> <pubkey with push> OP_CHECKSIG_EX
+        // For large pubkeys, we need OP_PUSHDATA2 (3 bytes) + data
+        size_t witness_script_size = 1; // algo_id (1 byte gets OP_PUSH1)
+        if (pubkey_size <= 75) {
+            witness_script_size += 1 + pubkey_size; // direct push
+        } else if (pubkey_size <= 255) {
+            witness_script_size += 1 + 1 + pubkey_size; // OP_PUSHDATA1
+        } else if (pubkey_size <= 65535) {
+            witness_script_size += 1 + 2 + pubkey_size; // OP_PUSHDATA2
+        } else {
+            witness_script_size += 1 + 4 + pubkey_size; // OP_PUSHDATA4
+        }
+        witness_script_size += 1; // OP_CHECKSIG_EX
         
-        // Total witness size
-        return sig_size + pubkey_size + witness_script_size;
+        // Stack items need size prefixes too
+        size_t total_size = 0;
+        
+        // Signature with size prefix
+        if (sig_size <= 252) {
+            total_size += 1 + sig_size;
+        } else if (sig_size <= 65535) {
+            total_size += 3 + sig_size;
+        } else {
+            total_size += 5 + sig_size;
+        }
+        
+        // Witness script with size prefix
+        if (witness_script_size <= 252) {
+            total_size += 1 + witness_script_size;
+        } else if (witness_script_size <= 65535) {
+            total_size += 3 + witness_script_size;
+        } else {
+            total_size += 5 + witness_script_size;
+        }
+        
+        return total_size;
     }
     
     std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override {
@@ -1179,8 +1224,9 @@ public:
     }
     
     std::optional<int64_t> MaxSatisfactionElems() const override { 
-        // Witness stack has 3 elements: signature, pubkey, witness script
-        return 3; 
+        // Witness stack has 2 elements: signature, witness script
+        // (pubkey is embedded in the witness script)
+        return 2; 
     }
     
     std::unique_ptr<DescriptorImpl> Clone() const override
@@ -2627,11 +2673,28 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
         }
     }
     if (txntype == TxoutType::WITNESS_V0_SCRIPTHASH && (ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH)) {
+        LogPrintf("[INFER] Found P2WSH script\n");
+        // For P2WSH, data[0] contains the 32-byte witness script hash (SHA256)
+        // But GetCScript expects a CScriptID which is RIPEMD160(SHA256(script))
+        // So we need to try to find the witness script by its SHA256 hash first
+        
+        // Try the standard CScriptID lookup first (for compatibility)
         CScriptID scriptid{RIPEMD160(data[0])};
         CScript subscript;
         if (provider.GetCScript(scriptid, subscript)) {
+            LogPrintf("[INFER] Found witness script for P2WSH using CScriptID, size=%d, hex=%s\n", subscript.size(), HexStr(subscript));
             auto sub = InferScript(subscript, ParseScriptContext::P2WSH, provider);
-            if (sub) return std::make_unique<WSHDescriptor>(std::move(sub));
+            if (sub) {
+                LogPrintf("[INFER] Successfully inferred subscript, returning WSHDescriptor\n");
+                return std::make_unique<WSHDescriptor>(std::move(sub));
+            } else {
+                LogPrintf("[INFER] Failed to infer subscript for P2WSH\n");
+            }
+        } else {
+            LogPrintf("[INFER] Could not find witness script for P2WSH using CScriptID lookup\n");
+            // For quantum witness scripts, we need to handle them specially
+            // since they might not be available via GetCScript
+            LogPrintf("[INFER] P2WSH witness program hash: %s\n", HexStr(data[0]));
         }
     }
     if (txntype == TxoutType::WITNESS_V1_TAPROOT && ctx == ParseScriptContext::TOP) {
@@ -2678,57 +2741,117 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
 
     // Check for quantum witness scripts before trying miniscript
     if (ctx == ParseScriptContext::P2WSH) {
-        // Check if this is a quantum script: <pubkey> OP_CHECKSIG_ML_DSA/SLH_DSA
-        if (script.size() >= 2) {
-            CScript::const_iterator pc = script.begin();
-            opcodetype opcode;
-            std::vector<unsigned char> pubkey_data;
+        LogPrintf("[INFER] Checking for quantum witness script, script size=%d\n", script.size());
+        // Debug: Print first few bytes of the script
+        if (script.size() >= 10) {
+            std::vector<unsigned char> first_bytes(script.begin(), script.begin() + 10);
+            LogPrintf("[INFER] First 10 bytes of script: %s\n", HexStr(first_bytes));
+        }
+        
+        // For quantum witness scripts, check if this matches the expected format
+        // The witness script might be in a different format - let's check both possibilities
+        LogPrintf("[INFER] Checking script[0]=0x%02x, script[1]=0x%02x, script[2]=0x%02x\n", 
+                  script.size() > 0 ? (unsigned)script[0] : 0,
+                  script.size() > 1 ? (unsigned)script[1] : 0,
+                  script.size() > 2 ? (unsigned)script[2] : 0);
+        
+        // First check if it starts with OP_PUSHDATA2 (witness script might be stored differently)
+        if (script.size() >= 5 && script[0] == 0x4d) { // OP_PUSHDATA2
+            // This could be a quantum witness script stored as OP_PUSHDATA2 <pubkey> OP_CHECKSIG_EX
+            // The algorithm ID might be part of the serialized pubkey
+            uint16_t data_size = script[1] | (script[2] << 8); // Little-endian
+            LogPrintf("[INFER] Found OP_PUSHDATA2, data size: %d\n", data_size);
             
-            // Get the first element (should be pubkey push)
-            if (script.GetOp(pc, opcode, pubkey_data) && !pubkey_data.empty()) {
-                // Get the second element (should be quantum checksig opcode)
-                if (script.GetOp(pc, opcode) && pc == script.end()) {
-                    if (opcode == OP_CHECKSIG_ML_DSA || opcode == OP_CHECKSIG_SLH_DSA) {
-                        // This is a quantum witness script
-                        quantum::KeyType keyType = (opcode == OP_CHECKSIG_ML_DSA) ? 
+            if (data_size == 1952 || data_size > 1000) { // Large size suggests quantum pubkey
+                // Check if the last byte is OP_CHECKSIG_EX
+                if (script.size() >= data_size + 4 && script[script.size() - 1] == OP_CHECKSIG_EX) {
+                    LogPrintf("[INFER] Found OP_CHECKSIG_EX at end, this might be a quantum witness script\n");
+                    
+                    // Extract the pubkey data
+                    std::vector<unsigned char> pubkey_data(script.begin() + 3, script.begin() + 3 + data_size);
+                    
+                    // Try both ML-DSA and SLH-DSA
+                    for (uint8_t algo_id : {quantum::SCHEME_ML_DSA_65, quantum::SCHEME_SLH_DSA_192F}) {
+                        quantum::KeyType keyType = (algo_id == quantum::SCHEME_ML_DSA_65) ? 
                             quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
                         quantum::CQuantumPubKey qpubkey(keyType, pubkey_data);
                         
                         if (qpubkey.IsValid()) {
-                            // Create a quantum pubkey provider
-                            // For quantum keys, we'll create a simple pubkey provider that returns the quantum pubkey ID
-                            // Note: This is a temporary solution - eventually we want proper quantum descriptor support
+                            LogPrintf("[INFER] Valid quantum pubkey found for algorithm %d\n", algo_id);
                             
-                            // Create a normal CPubKey that has the same keyID as the quantum pubkey
-                            // This is a workaround to make quantum addresses solvable
-                            CPubKey dummy_pubkey;
-                            CKeyID keyid = qpubkey.GetID();
-                            
-                            // Try to get a regular pubkey from the provider that matches this keyID
-                            if (provider.GetPubKey(keyid, dummy_pubkey)) {
-                                auto pubkey_provider = InferPubkey(dummy_pubkey, ctx, provider);
-                                if (pubkey_provider) {
-                                    return std::make_unique<PKDescriptor>(std::move(pubkey_provider), true);
-                                }
-                            }
-                            
-                            // Create a QuantumPubkeyProvider for this quantum pubkey
-                            quantum::SignatureSchemeID scheme_id = (opcode == OP_CHECKSIG_ML_DSA) ? 
-                                quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
-                            
+                            // Create QuantumPubkeyProvider
+                            quantum::SignatureSchemeID scheme_id = static_cast<quantum::SignatureSchemeID>(algo_id);
                             auto quantum_provider = std::make_unique<QuantumPubkeyProvider>(0, qpubkey, scheme_id);
                             
-                            // Create a QPKHDescriptor with the quantum provider
+                            // Create QPKHDescriptor
                             std::vector<std::unique_ptr<PubkeyProvider>> providers;
                             providers.push_back(std::move(quantum_provider));
                             
-                            // Return a QPKHDescriptor for proper solvability
                             return std::make_unique<QPKHDescriptor>(std::move(providers));
                         }
                     }
                 }
             }
         }
+        
+        // Now check the original format with single byte push
+        if (script.size() >= 5 && script[0] == 0x01) { // Single byte push
+            uint8_t algo_id = script[1];
+            LogPrintf("[INFER] Found single byte push at start, algorithm ID: %d\n", algo_id);
+            
+            if (algo_id == quantum::SCHEME_ML_DSA_65 || algo_id == quantum::SCHEME_SLH_DSA_192F) {
+                // This looks like a quantum witness script
+                // Now use GetOp to properly parse the rest
+                CScript::const_iterator pc = script.begin();
+                opcodetype opcode;
+                std::vector<unsigned char> vch;
+                
+                // Skip the algorithm ID push we already checked
+                if (!script.GetOp(pc, opcode, vch) || vch.size() != 1 || vch[0] != algo_id) {
+                    LogPrintf("[INFER] Failed to parse algorithm ID with GetOp\n");
+                    goto not_quantum;
+                }
+                
+                // Get the pubkey (which will be pushed with OP_PUSHDATA2 for large keys)
+                std::vector<unsigned char> pubkey_data;
+                if (script.GetOp(pc, opcode, pubkey_data) && !pubkey_data.empty()) {
+                    LogPrintf("[INFER] Got pubkey data, size=%d\n", pubkey_data.size());
+                    
+                    // Check for OP_CHECKSIG_EX at the end
+                    if (pc != script.end() && script.GetOp(pc, opcode) && pc == script.end() && opcode == OP_CHECKSIG_EX) {
+                        LogPrintf("[INFER] Found OP_CHECKSIG_EX, this is a quantum witness script\n");
+                        
+                        // Create quantum pubkey
+                        quantum::KeyType keyType = (algo_id == quantum::SCHEME_ML_DSA_65) ? 
+                            quantum::KeyType::ML_DSA_65 : quantum::KeyType::SLH_DSA_192F;
+                        quantum::CQuantumPubKey qpubkey(keyType, pubkey_data);
+                        
+                        if (qpubkey.IsValid()) {
+                            LogPrintf("[INFER] Quantum pubkey is valid, creating QPKHDescriptor\n");
+                            
+                            // Create QuantumPubkeyProvider
+                            quantum::SignatureSchemeID scheme_id = static_cast<quantum::SignatureSchemeID>(algo_id);
+                            auto quantum_provider = std::make_unique<QuantumPubkeyProvider>(0, qpubkey, scheme_id);
+                            
+                            // Create QPKHDescriptor
+                            std::vector<std::unique_ptr<PubkeyProvider>> providers;
+                            providers.push_back(std::move(quantum_provider));
+                            
+                            return std::make_unique<QPKHDescriptor>(std::move(providers));
+                        } else {
+                            LogPrintf("[INFER] Quantum pubkey is invalid\n");
+                        }
+                    } else {
+                        LogPrintf("[INFER] Expected OP_CHECKSIG_EX at end, but didn't find it\n");
+                    }
+                } else {
+                    LogPrintf("[INFER] Failed to get pubkey data\n");
+                }
+            }
+        }
+        
+        not_quantum:
+            ; // Empty statement after label
     }
 
     if (ctx == ParseScriptContext::P2WSH || ctx == ParseScriptContext::P2TR) {
@@ -2747,15 +2870,20 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
 
     // The following descriptors are all top-level only descriptors.
     // So if we are not at the top level, return early.
-    if (ctx != ParseScriptContext::TOP) return nullptr;
+    if (ctx != ParseScriptContext::TOP) {
+        LogPrintf("[INFER] Not at TOP level (ctx=%d), returning nullptr\n", (int)ctx);
+        return nullptr;
+    }
 
     CTxDestination dest;
     if (ExtractDestination(script, dest)) {
         if (GetScriptForDestination(dest) == script) {
+            LogPrintf("[INFER] Returning AddressDescriptor for script %s\n", HexStr(script));
             return std::make_unique<AddressDescriptor>(std::move(dest));
         }
     }
 
+    LogPrintf("[INFER] Returning RawDescriptor for script %s\n", HexStr(script));
     return std::make_unique<RawDescriptor>(script);
 }
 

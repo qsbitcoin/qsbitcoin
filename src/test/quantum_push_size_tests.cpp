@@ -7,6 +7,7 @@
 #include <script/script.h>
 #include <script/interpreter.h>
 #include <script/script_error.h>
+#include <script/quantum_signature.h>
 #include <crypto/quantum_key.h>
 #include <test/util/setup_common.h>
 
@@ -32,9 +33,15 @@ BOOST_AUTO_TEST_CASE(quantum_signature_push_in_evalscript)
     // The signature should be 3310 bytes
     BOOST_CHECK_EQUAL(sig.size(), 3310);
     
+    // Prepend algorithm ID for OP_CHECKSIG_EX
+    std::vector<unsigned char> full_sig;
+    full_sig.push_back(quantum::SCHEME_ML_DSA_65);
+    full_sig.insert(full_sig.end(), sig.begin(), sig.end());
+    BOOST_CHECK_EQUAL(full_sig.size(), 3311);
+    
     // Create a script that pushes this signature
     CScript script;
-    script << sig << OP_DROP << OP_1;
+    script << full_sig << OP_DROP << OP_1;
     
     std::vector<std::vector<unsigned char>> stack;
     ScriptError error;
@@ -114,9 +121,9 @@ BOOST_AUTO_TEST_CASE(quantum_witness_script_push)
     
     // Create witness script
     CScript witness_script;
-    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+    witness_script << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << pubkey.GetKeyData() << OP_CHECKSIG_EX;
     
-    // This witness script should be about 1953 bytes (1952 pubkey + 1 opcode)
+    // This witness script should be about 1954 bytes (1 algo + 1952 pubkey + 1 opcode)
     BOOST_CHECK_GT(witness_script.size(), 520);
     
     // In witness context, the script itself can be large

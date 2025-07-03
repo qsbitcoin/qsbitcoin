@@ -9,6 +9,7 @@
 #include <wallet/test/wallet_test_fixture.h>
 #include <script/sign.h>
 #include <script/script.h>
+#include <script/quantum_signature.h>
 #include <crypto/quantum_key.h>
 #include <consensus/validation.h>
 #include <policy/policy.h>
@@ -37,7 +38,7 @@ BOOST_AUTO_TEST_CASE(multiple_spkm_witness_corruption_prevention)
     CQuantumPubKey pubkey = key.GetPubKey();
     
     CScript witness_script;
-    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+    witness_script << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << pubkey.GetKeyData() << OP_CHECKSIG_EX;
     
     // Create P2WSH scriptPubKey
     uint256 script_hash;
@@ -110,10 +111,11 @@ BOOST_AUTO_TEST_CASE(witness_standardness_quantum_scripts)
     CQuantumPubKey pubkey = key.GetPubKey();
     
     CScript witness_script;
-    witness_script << pubkey.GetKeyData() << OP_CHECKSIG_ML_DSA;
+    witness_script << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << pubkey.GetKeyData() << OP_CHECKSIG_EX;
     
-    // Create a large signature (3.3KB)
-    std::vector<unsigned char> sig(3310, 0x01);
+    // Create a large signature (3.3KB + algo ID)
+    std::vector<unsigned char> sig(3311, 0x01);
+    sig[0] = quantum::SCHEME_ML_DSA_65;  // Set algorithm ID
     sig.back() = SIGHASH_ALL;
     
     // Build witness stack
@@ -132,8 +134,9 @@ BOOST_AUTO_TEST_CASE(push_size_limit_quantum_bypass)
 {
     // Test that quantum signatures bypass the 520-byte push limit when SCRIPT_VERIFY_QUANTUM_SIGS is set
     
-    // Create a large quantum signature (3.3KB)
-    std::vector<unsigned char> large_sig(3310, 0x01);
+    // Create a large quantum signature (3.3KB + algo ID)
+    std::vector<unsigned char> large_sig(3311, 0x01);
+    large_sig[0] = quantum::SCHEME_ML_DSA_65;  // Set algorithm ID
     large_sig.back() = SIGHASH_ALL;
     
     // Create a script that pushes this large signature

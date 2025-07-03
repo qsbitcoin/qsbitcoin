@@ -65,7 +65,7 @@ BOOST_AUTO_TEST_CASE(quantum_signature_checker_basic)
     
     // Create a dummy script
     CScript scriptCode;
-    scriptCode << key.GetPubKey().GetKeyData() << OP_CHECKSIG_ML_DSA;
+    scriptCode << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << key.GetPubKey().GetKeyData() << OP_CHECKSIG_EX;
     
     // Create signature hash
     uint256 sighash = SignatureHash(scriptCode, tx, 0, SIGHASH_ALL, 10000, SigVersion::BASE);
@@ -119,7 +119,7 @@ BOOST_AUTO_TEST_CASE(quantum_signature_checker_invalid)
     key2.MakeNewKey(KeyType::ML_DSA_65);
     
     CScript scriptCode;
-    scriptCode << key1.GetPubKey().GetKeyData() << OP_CHECKSIG_ML_DSA;
+    scriptCode << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << key1.GetPubKey().GetKeyData() << OP_CHECKSIG_EX;
     
     // Sign with key1
     uint256 sighash = SignatureHash(scriptCode, tx, 0, SIGHASH_ALL, 10000, SigVersion::BASE);
@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(quantum_signature_checker_slh_dsa)
     key.MakeNewKey(KeyType::SLH_DSA_192F);
     
     CScript scriptCode;
-    scriptCode << key.GetPubKey().GetKeyData() << OP_CHECKSIG_SLH_DSA;
+    scriptCode << std::vector<unsigned char>{quantum::SCHEME_SLH_DSA_192F} << key.GetPubKey().GetKeyData() << OP_CHECKSIG_EX;
     
     uint256 sighash = SignatureHash(scriptCode, tx, 0, SIGHASH_ALL, 10000, SigVersion::BASE);
     
@@ -212,7 +212,7 @@ BOOST_AUTO_TEST_CASE(quantum_signature_malleability)
     key.MakeNewKey(KeyType::ML_DSA_65);
     
     CScript scriptCode;
-    scriptCode << key.GetPubKey().GetKeyData() << OP_CHECKSIG_ML_DSA;
+    scriptCode << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65} << key.GetPubKey().GetKeyData() << OP_CHECKSIG_EX;
     
     uint256 sighash = SignatureHash(scriptCode, tx, 0, SIGHASH_ALL, 10000, SigVersion::BASE);
     

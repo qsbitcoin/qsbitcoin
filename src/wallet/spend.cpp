@@ -72,8 +72,11 @@ static bool UseMaxSig(const std::optional<CTxIn>& txin, const CCoinControl* coin
 static std::optional<int64_t> MaxInputWeight(const Descriptor& desc, const std::optional<CTxIn>& txin,
                                              const CCoinControl* coin_control, const bool tx_is_segwit,
                                              const bool can_grind_r) {
+    LogPrintf("[SPEND] MaxInputWeight called, descriptor=%s\n", desc.ToString());
     if (const auto sat_weight = desc.MaxSatisfactionWeight(!can_grind_r || UseMaxSig(txin, coin_control))) {
+        LogPrintf("[SPEND] MaxSatisfactionWeight returned %d\n", *sat_weight);
         if (const auto elems_count = desc.MaxSatisfactionElems()) {
+            LogPrintf("[SPEND] MaxSatisfactionElems returned %d\n", *elems_count);
             const bool is_segwit = IsSegwit(desc);
             // Account for the size of the scriptsig and the number of elements on the witness stack. Note
             // that if any input in the transaction is spending a witness program, we need to specify the
@@ -85,10 +88,17 @@ static std::optional<int64_t> MaxInputWeight(const Descriptor& desc, const std::
             const int64_t witstack_len = is_segwit ? GetSizeOfCompactSize(*elems_count) : (tx_is_segwit ? 1 : 0);
             // previous txid + previous vout + sequence + scriptsig len + witstack size + scriptsig or witness
             // NOTE: sat_weight already accounts for the witness discount accordingly.
-            return (32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR + witstack_len + *sat_weight;
+            int64_t result = (32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR + witstack_len + *sat_weight;
+            LogPrintf("[SPEND] MaxInputWeight returning %d\n", result);
+            return result;
+        } else {
+            LogPrintf("[SPEND] MaxSatisfactionElems returned nullopt\n");
         }
+    } else {
+        LogPrintf("[SPEND] MaxSatisfactionWeight returned nullopt\n");
     }
 
+    LogPrintf("[SPEND] MaxInputWeight returning nullopt\n");
     return {};
 }
 
@@ -96,20 +106,37 @@ static std::optional<int64_t> MaxInputWeight(const Descriptor& desc, const std::
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoint, const SigningProvider* provider, bool can_grind_r, const CCoinControl* coin_control)
 {
     // Use standard descriptor-based calculation (works for P2WSH quantum addresses)
-    if (!provider) return -1;
+    LogPrintf("[SPEND] CalculateMaximumSignedInputSize internal: provider=%p\n", provider);
+    if (!provider) {
+        LogPrintf("[SPEND] No provider, returning -1\n");
+        return -1;
+    }
     
     if (const auto desc = InferDescriptor(txout.scriptPubKey, *provider)) {
+        LogPrintf("[SPEND] InferDescriptor succeeded, descriptor type=%s\n", desc->ToString());
         if (const auto weight = MaxInputWeight(*desc, {}, coin_control, true, can_grind_r)) {
+            LogPrintf("[SPEND] MaxInputWeight returned %d\n", *weight);
             return static_cast<int>(GetVirtualTransactionSize(*weight, 0, 0));
+        } else {
+            LogPrintf("[SPEND] MaxInputWeight returned nullopt\n");
         }
+    } else {
+        LogPrintf("[SPEND] InferDescriptor failed\n");
     }
 
+    LogPrintf("[SPEND] Returning -1 (failed)\n");
     return -1;
 }
 
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const CWallet* wallet, const CCoinControl* coin_control)
 {
+    LogPrintf("[SPEND] CalculateMaximumSignedInputSize for script %s\n", HexStr(txout.scriptPubKey));
     const std::unique_ptr<SigningProvider> provider = wallet->GetSolvingProvider(txout.scriptPubKey);
+    if (!provider) {
+        LogPrintf("[SPEND] GetSolvingProvider returned nullptr for script %s\n", HexStr(txout.scriptPubKey));
+    } else {
+        LogPrintf("[SPEND] GetSolvingProvider returned provider\n");
+    }
     return CalculateMaximumSignedInputSize(txout, COutPoint(), provider.get(), wallet->CanGrindR(), coin_control);
 }
 
@@ -303,7 +330,17 @@ util::Result<PreSelectedInputs> FetchSelectedInputs(const CWallet& wallet, const
         }
 
         if (input_bytes == -1) {
-            input_bytes = CalculateMaximumSignedInputSize(txout, outpoint, &coin_control.m_external_provider, can_grind_r, &coin_control);
+            // For manual UTXO selection, try to get the signing provider from the wallet first
+            // This ensures witness scripts for quantum addresses are available
+            const std::unique_ptr<SigningProvider> wallet_provider = wallet.GetSolvingProvider(txout.scriptPubKey);
+            if (wallet_provider) {
+                LogPrintf("[SPEND] Using wallet's signing provider for manual UTXO %s\n", outpoint.ToString());
+                input_bytes = CalculateMaximumSignedInputSize(txout, outpoint, wallet_provider.get(), can_grind_r, &coin_control);
+            } else {
+                // Fall back to external provider if wallet doesn't have this script
+                LogPrintf("[SPEND] Using external provider for manual UTXO %s\n", outpoint.ToString());
+                input_bytes = CalculateMaximumSignedInputSize(txout, outpoint, &coin_control.m_external_provider, can_grind_r, &coin_control);
+            }
         }
 
         if (input_bytes == -1) {

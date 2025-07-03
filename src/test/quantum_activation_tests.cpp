@@ -64,7 +64,7 @@ BOOST_AUTO_TEST_CASE(quantum_opcodes_soft_fork)
 {
     // Test that quantum opcodes are NOPs when SCRIPT_VERIFY_QUANTUM_SIGS is not set
     CScript script;
-    script << OP_1 << OP_CHECKSIG_ML_DSA;
+    script << OP_1 << OP_CHECKSIG_EX;
     
     std::vector<std::vector<unsigned char>> stack;
     ScriptError error;
@@ -82,8 +82,8 @@ BOOST_AUTO_TEST_CASE(quantum_opcodes_soft_fork)
     BOOST_CHECK_EQUAL(error, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
     
     // Test quantum opcode recognition
-    BOOST_CHECK_EQUAL(GetOpName(OP_CHECKSIG_ML_DSA), "OP_CHECKSIG_ML_DSA");
-    BOOST_CHECK_EQUAL(GetOpName(OP_CHECKSIG_SLH_DSA), "OP_CHECKSIG_SLH_DSA");
+    BOOST_CHECK_EQUAL(GetOpName(OP_CHECKSIG_EX), "OP_CHECKSIG_EX");
+    BOOST_CHECK_EQUAL(GetOpName(OP_CHECKSIGVERIFY_EX), "OP_CHECKSIGVERIFY_EX");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
