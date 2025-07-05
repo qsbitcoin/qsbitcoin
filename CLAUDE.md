@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is QSBitcoin - a fork of Bitcoin Core implementing quantum-safe signatures using NIST-standardized post-quantum algorithms (ML-DSA-65 and SLH-DSA-192f) via liboqs v0.12.0+. The implementation maintains full backward compatibility through soft fork activation while providing a smooth migration path from ECDSA.
 
-**Implementation Status**: 100% complete - Full quantum signature functionality is operational. Quantum addresses can generate, receive, and spend funds. All critical features implemented and tested on regtest network.
+**Implementation Status**: 100% complete (July 5, 2025) - Full quantum signature functionality is operational. Quantum addresses can generate, receive, and spend funds. All critical features implemented and tested on regtest network. Fee structure simplified to match Bitcoin Core.
 
 ## Build Commands
 
@@ -91,7 +91,7 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 
 **Consensus Changes**:
 - MAX_STANDARD_TX_WEIGHT_QUANTUM = 1MB (vs 400KB standard)
-- Quantum opcodes using repurposed NOPs (OP_NOP4-7)
+- Unified opcodes: OP_CHECKSIG_EX (0xb3), OP_CHECKSIGVERIFY_EX (0xb4)
 - BIP9 soft fork activation (bit 3)
 
 ### Core Implementation Components
@@ -102,10 +102,10 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - `liboqs/` - Integrated OQS library (ML-DSA, SLH-DSA only)
 
 **Script System** (`src/script/`):
-- Quantum opcodes: OP_CHECKSIG_EX (0xb3), OP_CHECKSIGVERIFY_EX (0xb4)
+- Unified opcodes: OP_CHECKSIG_EX (0xb3), OP_CHECKSIGVERIFY_EX (0xb4)
 - SCRIPT_VERIFY_QUANTUM_SIGS flag (bit 21)
 - EvalChecksigQuantum() for quantum signature verification
-- Unified opcode design with algorithm ID in signature data
+- Algorithm ID in signature data (0x02=ML-DSA, 0x03=SLH-DSA)
 
 **Wallet** (`src/wallet/`):
 - Descriptor-based architecture with quantum descriptors (`qpkh`)
@@ -116,8 +116,8 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 **RPC Commands**:
 - `getnewaddress` - Generate addresses (use algorithm parameter: "ecdsa" for standard, "ml-dsa" or "slh-dsa" for quantum)
 - `getquantuminfo` - Wallet quantum capabilities
-- `estimatesmartfee` - Standard fee estimation
-- `estimatetxfee` - Transaction fee estimation (fees based on transaction size only)
+- `estimatesmartfee` - Standard fee estimation (no quantum discounts)
+- No special quantum fee commands (fees based on transaction size only)
 
 ### Development Workflow
 
@@ -153,7 +153,7 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - **Weight calculations**: Special factors for quantum signatures (2x-3x vs 4x ECDSA)
 - **Activation status**: Testnet/Regtest ALWAYS_ACTIVE, Mainnet NEVER_ACTIVE
 
-### Recently Completed (June 27-July 2, 2025)
+### Recently Completed (June 27-July 5, 2025)
 
 1. **Quantum Descriptors**: Full `qpkh()` descriptor implementation in descriptor.cpp
 2. **SPKM Integration**: DescriptorScriptPubKeyMan now supports quantum signing
@@ -184,6 +184,12 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
    - Replaced separate OP_CHECKSIG_ML_DSA/SLH_DSA with unified OP_CHECKSIG_EX
    - Algorithm ID now included in signature data (0x02 for ML-DSA, 0x03 for SLH-DSA)
    - Simplifies script validation and improves extensibility
+
+9. **Fee Structure Simplification** (July 5, 2025): Aligned with Bitcoin Core
+   - Removed all quantum fee discounts (10% ML-DSA, 5% SLH-DSA)
+   - Removed 1.5x quantum transaction fee multiplier
+   - Fees now based purely on transaction size/weight
+   - Quantum signatures naturally pay more due to larger size
 
 ### Next Critical Steps
 
@@ -318,14 +324,17 @@ sudo coredumpctl gdb bitcoind
 grep -i "assertion\|error\|fault" ~/.bitcoin/regtest/debug.log
 ```
 
-### Recent Code Quality Improvements (July 3, 2025)
+### Code Quality Improvements (July 3-5, 2025)
 
 1. **Enum Consolidation**: Unified `SignatureSchemeID` enum
    - Removed duplicate enum definitions
    - Now using single `quantum::SignatureSchemeID` throughout codebase
    - Values: `SCHEME_ECDSA` (0x01), `SCHEME_ML_DSA_65` (0x02), `SCHEME_SLH_DSA_192F` (0x03)
 
-2. **Magic Number Elimination**: Replaced hardcoded value
+2. **Magic Number Elimination**: Replaced hardcoded values
    - Added `MIN_QUANTUM_SIG_SIZE_THRESHOLD` constant (100 bytes)
    - Used for detecting quantum signatures vs ECDSA signatures
-   - Improves code maintainability and clarity
+
+3. **Test Script Cleanup**: Removed 10 obsolete shell scripts
+   - All manual test scripts removed in favor of proper unit/functional tests
+   - Testing now integrated with standard Bitcoin Core test framework

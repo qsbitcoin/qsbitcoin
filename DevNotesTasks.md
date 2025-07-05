@@ -1,8 +1,8 @@
 # DevNotesTasks.md - QSBitcoin Developer Quick Reference
 
-## Current Status (June 30, 2025)
-**Implementation**: ~97% complete - Quantum soft fork working, wallet signing integration fixed for new addresses
-**Architecture**: Unified quantum address generation with standard RPCs, soft fork bypasses push limits
+## Current Status (July 5, 2025)
+**Implementation**: 100% complete - Full quantum signature functionality operational
+**Architecture**: Unified quantum opcodes (OP_CHECKSIG_EX), standard fee structure (no discounts)
 
 ## Quick Commands
 
@@ -87,6 +87,7 @@ witness: [signature][witness_script]
 // Script: OP_0 <32-byte-script-hash>
 // Witness script: <pubkey> OP_CHECKSIG_EX
 // Signature format: [algorithm_id:1 byte][signature_data][sighash_type:1 byte]
+// Algorithm IDs: 0x02 = ML-DSA-65, 0x03 = SLH-DSA-192f
 ```
 
 ### Key Implementation Files
@@ -201,14 +202,29 @@ witness: [signature][witness_script]
 
 ## Recent Updates
 
+### Fee Structure Simplification (July 5, 2025)
+**Major Change**: Removed all quantum fee discounts to align with Bitcoin Core
+
+**Changes Made**:
+1. **Removed Fee Discounts**: No more 10% ML-DSA or 5% SLH-DSA discounts
+2. **Removed Fee Multiplier**: No more 1.5x quantum transaction fee multiplier
+3. **Standard Fee Model**: Fees now based purely on transaction size/weight
+4. **Natural Cost**: Quantum signatures pay more due to larger size:
+   - ML-DSA: ~28x larger than ECDSA
+   - SLH-DSA: ~188x larger than ECDSA
+
+### Code Quality Improvements (July 3, 2025)
+1. **Enum Consolidation**: Unified `SignatureSchemeID` enum
+   - Removed duplicate enum definitions
+   - Now using single `quantum::SignatureSchemeID` throughout codebase
+   - Values: `SCHEME_ECDSA` (0x01), `SCHEME_ML_DSA_65` (0x02), `SCHEME_SLH_DSA_192F` (0x03)
+
+2. **Magic Number Elimination**: Replaced hardcoded values
+   - Added `MIN_QUANTUM_SIG_SIZE_THRESHOLD` constant (100 bytes)
+   - Used for detecting quantum signatures vs ECDSA signatures
+
 ### Opcode Consolidation (July 2, 2025)
 **Major Architecture Improvement**: Reduced quantum opcodes from 4 to 2 unified opcodes
-
-**Previous Implementation** (4 opcodes):
-- OP_CHECKSIG_ML_DSA (0xb3) - ML-DSA signature verification
-- OP_CHECKSIG_SLH_DSA (0xb4) - SLH-DSA signature verification
-- OP_CHECKSIGVERIFY_ML_DSA (0xb5) - ML-DSA verify with stack cleanup
-- OP_CHECKSIGVERIFY_SLH_DSA (0xb6) - SLH-DSA verify with stack cleanup
 
 **New Implementation** (2 unified opcodes):
 - OP_CHECKSIG_EX (0xb3) - Extended checksig for all quantum signatures
@@ -220,11 +236,6 @@ witness: [signature][witness_script]
    - 0x03 = SLH-DSA-192f
 2. **Witness Script Format**: Simplified to `<pubkey> OP_CHECKSIG_EX`
 3. **Signature Format**: `[algorithm_id:1 byte][signature_data][sighash_type:1 byte]`
-4. **Benefits**:
-   - Fewer opcodes to maintain and test
-   - Easier to add new algorithms in the future
-   - Cleaner soft fork implementation
-   - More consistent with Bitcoin's design philosophy
 
 ## Key Development Learnings
 
@@ -294,10 +305,10 @@ if (index < 0) {
 - Soft fork: Testnet ALWAYS_ACTIVE, Mainnet NEVER_ACTIVE
 
 ### Fee Structure
-- Base fee × 1.5 × discount factor
-- ML-DSA: 10% discount (0.9 factor)
-- SLH-DSA: 5% discount (0.95 factor)
-- Implemented in validation.cpp PreChecks
+- Standard Bitcoin fee model - no discounts or multipliers
+- Fees based purely on transaction size/weight
+- Quantum signatures naturally pay more due to larger size
+- No special fee logic in validation.cpp
 
 ## Testing Checklist
 
@@ -431,5 +442,5 @@ The core issue preventing quantum address spending has been identified and fixed
 - Both ML-DSA and SLH-DSA signatures work when using correct keys
 
 ---
-*Last Updated: July 2, 2025*
-*Version: 1.8 - Unified quantum opcodes implemented, reduced from 4 to 2*
+*Last Updated: July 5, 2025*
+*Version: 1.9 - Fee structure simplified to match Bitcoin Core, removed all discounts*

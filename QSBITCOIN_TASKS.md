@@ -1,6 +1,6 @@
 # QSBitcoin Task Plan - Signature Implementation
 
-## 🟢 100% COMPLETE (July 2, 2025)
+## 🟢 100% COMPLETE (July 5, 2025)
 **QSBitcoin Quantum Signatures Are Fully Operational!**
 - ✅ Quantum addresses can be generated and receive funds
 - ✅ Quantum signatures are created and verified successfully
@@ -8,6 +8,7 @@
 - ✅ Soft fork allows large signatures (3.3KB ML-DSA, 35KB SLH-DSA) in witness scripts
 - ✅ All policy and consensus rules updated for quantum transactions
 - ✅ Full transaction cycle tested on regtest network (send and receive)
+- ✅ Fee structure simplified to match Bitcoin Core (no discounts)
 
 **Key Fixes Applied (July 1, 2025)**:
 1. Fixed witness script corruption by multiple ScriptPubKeyMans
@@ -16,8 +17,14 @@
 4. Added quantum flag to mandatory script verification
 5. Implemented missing CheckQuantumSignature in transaction checker
 
-**Architecture Improvement (July 2, 2025)**:
-✅ **Opcode Consolidation**: Successfully reduced quantum opcodes from 4 to 2
+**Recent Improvements**:
+✅ **Fee Simplification (July 5, 2025)**: Removed all quantum fee discounts
+- No more 10% ML-DSA or 5% SLH-DSA discounts
+- No more 1.5x quantum transaction fee multiplier
+- Fees now based purely on transaction size (same as Bitcoin Core)
+- Quantum signatures naturally pay more due to larger size
+
+✅ **Opcode Consolidation (July 2, 2025)**: Successfully reduced quantum opcodes from 4 to 2
 - Implemented OP_CHECKSIG_EX and OP_CHECKSIGVERIFY_EX as unified opcodes
 - Algorithm identification moved to signature data (first byte)
 - All tests updated and passing with new structure
@@ -1018,7 +1025,7 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 - [x] **NEW**: Extend `getnewaddress` with algorithm parameter ("ml-dsa", "slh-dsa") **[COMPLETED June 28, 2025]**
 - [x] **NEW**: Extend `getrawchangeaddress` with algorithm parameter **[COMPLETED June 28, 2025]**
 - [x] **NEW**: Update `signmessage`/`verifymessage` for quantum signatures **[COMPLETED June 28, 2025]**
-- [ ] Add `migratewallet` RPC **[LOW PRIORITY - Part of key migration utilities]**
+- [ ] ~~Add `migratewallet` RPC~~ **[CANCELLED - Not needed with unified approach]**
 - [x] Update existing RPCs for compatibility
 - [ ] Create RPC documentation **[MEDIUM PRIORITY]**
 - [x] **Unit Tests**: RPC command validation
@@ -1146,7 +1153,7 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 
 ## Progress Tracking
 
-### Overall Progress (Updated July 1, 2025)
+### Overall Progress (Updated July 5, 2025)
 - **Total Tasks**: 179 (153 original + 24 for descriptor implementation + 2 critical fixes)
 - **Completed**: 179 - ALL TASKS COMPLETE! 🎉
 - **Critical Features**: 100% Complete
@@ -1163,6 +1170,7 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
   - ✅ Transaction spending fixes - Completed July 1, 2025
   - ✅ Policy updates for quantum transactions - Completed July 1, 2025
   - ✅ End-to-end testing - Completed July 1, 2025
+  - ✅ Fee structure simplification - Completed July 5, 2025
 - **Actual Completion**: 100% - Full quantum signature support operational
 
 ### Phase Progress
@@ -1208,8 +1216,8 @@ The transition from legacy QuantumScriptPubKeyMan to descriptor-based architectu
 
 ---
 
-*Last Updated: July 1, 2025*  
-*Version: 4.6* - Fixed quantum witness script execution tests by using correct signature checker class. Documentation updated with test fix details.  
+*Last Updated: July 5, 2025*  
+*Version: 4.7* - Updated documentation to reflect fee structure simplification and 100% completion status.  
 
 ## Living Document Policy
 
