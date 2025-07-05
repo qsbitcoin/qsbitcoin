@@ -18,18 +18,42 @@ ctest --test-dir build -j$(nproc) --output-on-failure      # All tests
 build/test/functional/test_runner.py -j$(nproc)             # All functional tests
 build/test/functional/test_runner.py wallet_quantum.py      # Quantum functional test
 
-# Start regtest daemon
-./build/bin/bitcoind -regtest -daemon
+# Complete testing workflow with proper mining
+# Clean start
+pkill -f "bitcoind.*regtest" || true
+rm -rf ~/.bitcoin/regtest/
 
-# Create fresh wallet (always delete old ones first)
-rm -rf ~/.bitcoin/regtest/wallets/*
+# Start regtest daemon with fallback fee
+./build/bin/bitcoind -regtest -daemon -fallbackfee=0.00001
+sleep 3
+
+# Create fresh wallet
 ./build/bin/bitcoin-cli -regtest createwallet "test_wallet"
 
-# Generate quantum address (unified approach - June 28, 2025)
-./build/bin/bitcoin-cli -regtest getnewaddress "" "" "ml-dsa"    # Returns bcrt1q... ML-DSA address
-./build/bin/bitcoin-cli -regtest getnewaddress "" "" "slh-dsa"   # Returns bcrt1q... SLH-DSA address
-./build/bin/bitcoin-cli -regtest getrawchangeaddress "" "ml-dsa"  # ML-DSA change address
-./build/bin/bitcoin-cli -regtest getrawchangeaddress "" "slh-dsa" # SLH-DSA change address
+# Mine initial blocks for spendable coins
+MINER=$(./build/bin/bitcoin-cli -regtest getnewaddress)
+./build/bin/bitcoin-cli -regtest generatetoaddress 101 $MINER
+
+# Generate quantum addresses (unified approach - June 28, 2025)
+MLDSA=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "ml-dsa")
+SLHDSA=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "slh-dsa")
+
+# Send to quantum addresses
+./build/bin/bitcoin-cli -regtest sendtoaddress $MLDSA 10.0
+./build/bin/bitcoin-cli -regtest sendtoaddress $SLHDSA 10.0
+
+# CRITICAL: Mine blocks to confirm transactions
+./build/bin/bitcoin-cli -regtest generatetoaddress 6 $MINER
+
+# Now quantum UTXOs will be properly tracked
+./build/bin/bitcoin-cli -regtest listunspent  # Will show quantum UTXOs
+
+# Test spending (wallet will use quantum signatures automatically)
+DEST=$(./build/bin/bitcoin-cli -regtest getnewaddress)
+./build/bin/bitcoin-cli -regtest sendtoaddress $DEST 5.0
+
+# Mine to confirm spend
+./build/bin/bitcoin-cli -regtest generatetoaddress 1 $MINER
 
 
 

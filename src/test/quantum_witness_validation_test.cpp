@@ -64,10 +64,6 @@ BOOST_AUTO_TEST_CASE(test_witness_quantum_signature_counting)
     BOOST_CHECK_EQUAL(quantum::CountQuantumSignatures(tx), 1);
     BOOST_CHECK(quantum::HasQuantumSignatures(tx));
     
-    // Test fee adjustment works
-    CAmount base_fee = 10000;
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    BOOST_CHECK(adjusted_fee != base_fee); // Should be adjusted for quantum
     
     // Test with SLH-DSA signature
     CMutableTransaction mtx2;
@@ -133,10 +129,6 @@ BOOST_AUTO_TEST_CASE(test_no_witness_quantum_signatures)
     
     BOOST_CHECK_EQUAL(quantum::CountQuantumSignatures(tx), 0);
     BOOST_CHECK(!quantum::HasQuantumSignatures(tx));
-    
-    CAmount base_fee = 10000;
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    BOOST_CHECK_EQUAL(adjusted_fee, base_fee); // No adjustment for non-quantum
 }
 
 BOOST_AUTO_TEST_CASE(test_multiple_quantum_inputs)
@@ -218,15 +210,6 @@ BOOST_AUTO_TEST_CASE(test_multiple_quantum_inputs)
     BOOST_CHECK_EQUAL(quantum::CountQuantumSignatures(tx), 3);
     BOOST_CHECK(quantum::HasQuantumSignatures(tx));
     
-    // Test fee adjustment with mixed signature types
-    CAmount base_fee = 10000;
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    
-    // Fee should be adjusted based on weighted average
-    // 2 ML-DSA (10% discount each) + 1 SLH-DSA (5% discount)
-    // Average discount = (2 * 0.9 + 1 * 0.95) / 3 = 0.916667
-    BOOST_CHECK(adjusted_fee > base_fee); // Should be higher due to quantum multiplier
-    BOOST_CHECK(adjusted_fee < base_fee * quantum::QUANTUM_FEE_MULTIPLIER); // But with discount
 }
 
 BOOST_AUTO_TEST_CASE(test_mixed_quantum_and_ecdsa_inputs)
@@ -285,103 +268,8 @@ BOOST_AUTO_TEST_CASE(test_mixed_quantum_and_ecdsa_inputs)
     BOOST_CHECK_EQUAL(quantum::CountQuantumSignatures(tx), 1);
     BOOST_CHECK(quantum::HasQuantumSignatures(tx));
     
-    // Fee should still be adjusted for the quantum signature
-    CAmount base_fee = 10000;
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    BOOST_CHECK(adjusted_fee != base_fee);
 }
 
-BOOST_AUTO_TEST_CASE(test_fee_discount_calculations)
-{
-    // Test specific fee discount calculations
-    CAmount base_fee = 10000;
-    
-    // Test ML-DSA only transaction
-    {
-        CMutableTransaction mtx;
-        mtx.version = CTransaction::CURRENT_VERSION;
-        
-        quantum::CQuantumKey key;
-        key.MakeNewKey(quantum::KeyType::ML_DSA_65);
-        quantum::CQuantumPubKey pubkey = key.GetPubKey();
-        
-        CTxIn input;
-        input.prevout = COutPoint();
-        input.scriptSig = CScript();
-        
-        quantum::QuantumSignature qsig;
-        qsig.scheme_id = quantum::SCHEME_ML_DSA_65;
-        qsig.signature = std::vector<unsigned char>(quantum::ML_DSA_65_SIG_SIZE, 0x01);
-        qsig.pubkey = pubkey.GetKeyData();
-        
-        CScript witnessScript;
-        witnessScript << std::vector<unsigned char>{quantum::SCHEME_ML_DSA_65};
-        witnessScript << pubkey.GetKeyData();
-        witnessScript << OP_CHECKSIG_EX;
-        
-        std::vector<unsigned char> serializedSig;
-        qsig.Serialize(serializedSig);
-        
-        input.scriptWitness.stack.push_back(serializedSig);
-        input.scriptWitness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
-        
-        mtx.vin.push_back(input);
-        
-        CTxOut output;
-        output.nValue = 100000;
-        output.scriptPubKey = CScript() << OP_RETURN;
-        mtx.vout.push_back(output);
-        
-        CTransaction tx(mtx);
-        
-        CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-        CAmount expected = static_cast<CAmount>(base_fee * quantum::QUANTUM_FEE_MULTIPLIER * quantum::ML_DSA_FEE_DISCOUNT);
-        BOOST_CHECK_EQUAL(adjusted_fee, expected);
-    }
-    
-    // Test SLH-DSA only transaction
-    {
-        CMutableTransaction mtx;
-        mtx.version = CTransaction::CURRENT_VERSION;
-        
-        quantum::CQuantumKey key;
-        key.MakeNewKey(quantum::KeyType::SLH_DSA_192F);
-        quantum::CQuantumPubKey pubkey = key.GetPubKey();
-        
-        CTxIn input;
-        input.prevout = COutPoint();
-        input.scriptSig = CScript();
-        
-        quantum::QuantumSignature qsig;
-        qsig.scheme_id = quantum::SCHEME_SLH_DSA_192F;
-        qsig.signature = std::vector<unsigned char>(quantum::SLH_DSA_192F_SIG_SIZE, 0x02);
-        qsig.pubkey = pubkey.GetKeyData();
-        
-        CScript witnessScript;
-        witnessScript << std::vector<unsigned char>{quantum::SCHEME_SLH_DSA_192F};
-        witnessScript << pubkey.GetKeyData();
-        witnessScript << OP_CHECKSIG_EX;
-        
-        std::vector<unsigned char> serializedSig;
-        qsig.Serialize(serializedSig);
-        
-        input.scriptWitness.stack.push_back(serializedSig);
-        input.scriptWitness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
-        
-        mtx.vin.push_back(input);
-        
-        CTxOut output;
-        output.nValue = 100000;
-        output.scriptPubKey = CScript() << OP_RETURN;
-        mtx.vout.push_back(output);
-        
-        CTransaction tx(mtx);
-        
-        CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-        CAmount expected = static_cast<CAmount>(base_fee * quantum::QUANTUM_FEE_MULTIPLIER * quantum::SLH_DSA_FEE_DISCOUNT);
-        BOOST_CHECK_EQUAL(adjusted_fee, expected);
-    }
-}
 
 BOOST_AUTO_TEST_CASE(test_witness_script_without_algorithm_prefix)
 {

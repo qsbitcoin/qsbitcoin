@@ -914,14 +914,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // ws.m_modified_fees includes any fee deltas from PrioritiseTransaction
     ws.m_modified_fees = ws.m_tx_handle->GetModifiedFee();
 
-    // Apply quantum signature fee adjustments
-    if (quantum::HasQuantumSignatures(tx)) {
-        CAmount quantum_adjusted_fee = quantum::GetQuantumAdjustedFee(ws.m_base_fees, tx);
-        // The adjustment should be applied as a delta on top of any existing modifications
-        CAmount fee_delta = quantum_adjusted_fee - ws.m_base_fees;
-        ws.m_modified_fees += fee_delta;
-    }
-
     ws.m_vsize = ws.m_tx_handle->GetTxSize();
 
     // Enforces 0-fee for dust transactions, no incentive to be mined alone

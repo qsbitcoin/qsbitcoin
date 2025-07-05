@@ -190,19 +190,19 @@ else:
 
 ## 5. Fee Policy
 
-### 5.1 Fee Discounts
+### 5.1 Standard Fee Structure
 
-To incentivize quantum-safe adoption:
-- ML-DSA signatures: 10% fee discount
-- SLH-DSA signatures: 5% fee discount
-- Base quantum fee multiplier: 1.5x
+Quantum transactions pay standard fees based on transaction size:
+- No special discounts or multipliers
+- Larger quantum signatures result in proportionally higher fees
+- Fee calculation follows standard Bitcoin Core logic
 
 ### 5.2 Fee Calculation
 
 ```
-base_fee = calculate_standard_fee(tx_size)
-if (has_quantum_signatures):
-    fee = base_fee * 1.5 * (1 - discount_rate)
+fee = calculate_standard_fee(tx_size)
+// No special handling for quantum signatures
+// Fees based purely on transaction weight/size
 ```
 
 ## 6. Wallet Integration

@@ -90,9 +90,6 @@ BOOST_AUTO_TEST_CASE(test_empty_transaction)
     BOOST_CHECK_EQUAL(quantum::CountQuantumSignatures(tx), 0);
     BOOST_CHECK(!quantum::HasQuantumSignatures(tx));
     
-    CAmount base_fee = 10000;
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    BOOST_CHECK_EQUAL(adjusted_fee, base_fee);
     
     std::string reason;
     BOOST_CHECK(quantum::CheckQuantumSignaturePolicy(tx, reason));
@@ -251,15 +248,6 @@ BOOST_AUTO_TEST_CASE(test_zero_value_fee_calculation)
     
     CTransaction tx(mtx);
     
-    // Test with zero base fee
-    CAmount base_fee = 0;
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    BOOST_CHECK_EQUAL(adjusted_fee, 0); // Should remain 0
-    
-    // Test with negative base fee (shouldn't happen but test defensive programming)
-    base_fee = -1000;
-    adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    BOOST_CHECK_EQUAL(adjusted_fee, base_fee); // Should return base_fee due to max() logic
 }
 
 BOOST_AUTO_TEST_CASE(test_invalid_signature_scheme_ids)

@@ -55,4 +55,4 @@ Successfully tested on regtest network:
 
 - ML-DSA signatures: ~3.3KB (recommended for general use)
 - SLH-DSA signatures: ~35KB (for high-security applications)
-- Transaction fees automatically adjusted based on signature type
+- Transaction fees based on transaction size only (no special discounts)

@@ -32,20 +32,6 @@ static constexpr unsigned int MAX_STANDARD_QUANTUM_SIGS = 10;
 /** Maximum size of a single quantum signature in a standard transaction */
 static constexpr unsigned int MAX_STANDARD_QUANTUM_SIG_SIZE = 50000; // ~49KB for SLH-DSA
 
-/** Minimum fee rate multiplier for quantum transactions
- * Quantum signatures require more resources to validate, so we require higher fees
- */
-static constexpr double QUANTUM_FEE_MULTIPLIER = 1.5;
-
-/** Discount factor for ML-DSA signatures to encourage adoption
- * Applied as a reduction to the calculated fee
- */
-static constexpr double ML_DSA_FEE_DISCOUNT = 0.9; // 10% discount
-
-/** Discount factor for SLH-DSA signatures
- * Smaller discount due to much larger size
- */
-static constexpr double SLH_DSA_FEE_DISCOUNT = 0.95; // 5% discount
 
 /**
  * Check if a transaction weight is within quantum-safe limits
@@ -77,14 +63,6 @@ unsigned int CountQuantumSignatures(const T& tx);
 template<typename T>
 bool HasQuantumSignatures(const T& tx);
 
-/**
- * Calculate adjusted fee for a transaction with quantum signatures
- * @param[in] base_fee Base fee calculated normally
- * @param[in] tx Transaction to analyze
- * @return Adjusted fee considering quantum signature discounts
- */
-template<typename T>
-CAmount GetQuantumAdjustedFee(CAmount base_fee, const T& tx);
 
 /**
  * Validate quantum signature counts and sizes

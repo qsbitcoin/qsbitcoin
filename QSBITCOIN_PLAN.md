@@ -130,7 +130,7 @@ case OP_CHECKSIG_SLH_DSA:
    - Testnet/Regtest: ALWAYS_ACTIVE for testing
 2. **Quantum addresses opt-in** - Users migrate at their pace
 3. **Legacy addresses work forever** - No forced migration
-4. **Fee incentives only** - 10% discount for quantum signatures (not yet implemented)
+4. **No fee incentives** - Fees based purely on transaction size
 
 ### Simple Migration Path
 ```bash

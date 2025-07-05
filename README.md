@@ -81,41 +81,83 @@ For more detailed build options and troubleshooting, see [QSBITCOIN_TASKS.md](QS
 
 ## Quick Start: Testing Quantum Features
 
-### Generate a Quantum Address
+### Complete Testing Workflow
 ```bash
-# Start bitcoind in regtest mode
-./build/bin/bitcoind -regtest -daemon -fallbackfee=0.00001
+# Clean start - ensure no old data interferes
+pkill -f "bitcoind.*regtest" || true
+rm -rf ~/.bitcoin/regtest/
 
-# Create a wallet
+# Start bitcoind in regtest mode with fallback fee
+./build/bin/bitcoind -regtest -daemon -fallbackfee=0.00001
+sleep 3  # Wait for startup
+
+# Create a fresh wallet
 ./build/bin/bitcoin-cli -regtest createwallet "quantum_test"
 
-# Generate a quantum address (ML-DSA for standard use)
-./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "ml-dsa"
+# Generate initial blocks for spendable coins
+MINER=$(./build/bin/bitcoin-cli -regtest getnewaddress)
+./build/bin/bitcoin-cli -regtest generatetoaddress 101 $MINER
+```
 
-# Or generate a high-security address (SLH-DSA for cold storage)
-./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "slh-dsa"
+### Generate and Use Quantum Addresses
+```bash
+# Generate quantum addresses (ML-DSA for standard use)
+ML_ADDR=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "ml-dsa")
+echo "ML-DSA address: $ML_ADDR"
 
-# Get quantum wallet info
+# Generate high-security address (SLH-DSA for cold storage)
+SLH_ADDR=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "slh-dsa")
+echo "SLH-DSA address: $SLH_ADDR"
+
+# Check quantum wallet info
 ./build/bin/bitcoin-cli -regtest getquantuminfo
 ```
 
 ### Send and Receive with Quantum Addresses
 ```bash
-# Generate blocks for testing
-./build/bin/bitcoin-cli -regtest generatetoaddress 101 $(./build/bin/bitcoin-cli -regtest getnewaddress)
+# Send to quantum addresses
+./build/bin/bitcoin-cli -regtest sendtoaddress $ML_ADDR 10.0
+./build/bin/bitcoin-cli -regtest sendtoaddress $SLH_ADDR 10.0
 
-# Send to a quantum address
-QUANTUM_ADDR=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "ml-dsa")
-./build/bin/bitcoin-cli -regtest sendtoaddress $QUANTUM_ADDR 1.0
+# IMPORTANT: Mine blocks to confirm transactions (at least 6 for proper confirmation)
+./build/bin/bitcoin-cli -regtest generatetoaddress 6 $MINER
 
-# Mine the transaction
-./build/bin/bitcoin-cli -regtest generatetoaddress 1 $(./build/bin/bitcoin-cli -regtest getnewaddress)
+# Verify the quantum UTXOs are tracked
+./build/bin/bitcoin-cli -regtest listunspent | jq '.[] | select(.address == "'$ML_ADDR'" or .address == "'$SLH_ADDR'")'
 
-# Verify the quantum address can spend
-./build/bin/bitcoin-cli -regtest sendtoaddress $(./build/bin/bitcoin-cli -regtest getnewaddress) 0.5 "" "" true
+# Spend from quantum addresses (wallet will automatically select inputs)
+DEST=$(./build/bin/bitcoin-cli -regtest getnewaddress)
+TX_ID=$(./build/bin/bitcoin-cli -regtest sendtoaddress $DEST 5.0)
+echo "Transaction ID: $TX_ID"
+
+# Mine to confirm the spend
+./build/bin/bitcoin-cli -regtest generatetoaddress 1 $MINER
+
+# Check transaction details and fee
+./build/bin/bitcoin-cli -regtest gettransaction $TX_ID | jq '{txid, fee, confirmations}'
 ```
 
-For more examples and testing scripts, see the `test_quantum_*.sh` scripts in the project root.
+### Test Wallet Persistence
+```bash
+# Stop and restart to ensure quantum keys persist
+./build/bin/bitcoin-cli -regtest stop
+sleep 2
+./build/bin/bitcoind -regtest -daemon -fallbackfee=0.00001
+sleep 3
+./build/bin/bitcoin-cli -regtest loadwallet "quantum_test"
+
+# Quantum addresses should still be spendable
+./build/bin/bitcoin-cli -regtest listunspent | jq '.[] | select(.spendable == true and .amount > 1)'
+
+# Clean shutdown
+./build/bin/bitcoin-cli -regtest stop
+```
+
+**Important Notes:**
+- Always mine blocks after sending to quantum addresses to ensure proper UTXO tracking
+- Quantum signatures are much larger: ML-DSA ~3.3KB, SLH-DSA ~35KB (vs ECDSA ~71 bytes)
+- Fees are based purely on transaction size with no special discounts
+- Use `jq` for better JSON output formatting (install with `apt-get install jq`)
 
 ## Contributing
 
@@ -133,7 +175,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 - [x] **P2WSH Addresses** - Standard bech32 format for all quantum addresses (bc1q...)
 - [x] **Soft Fork Activation** - BIP9-style deployment with full backward compatibility
 - [x] **Wallet Integration** - Complete descriptor-based quantum wallet support
-- [x] **Fee Optimization** - Smart fee structure with quantum signature discounts
+- [x] **Standard Fee Structure** - Fees based on transaction size with no special discounts
 - [x] **Comprehensive Testing** - Full test suite with quantum-specific test cases
 
 ### Technical Specifications

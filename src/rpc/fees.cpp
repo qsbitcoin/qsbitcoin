@@ -8,7 +8,6 @@
 #include <node/context.h>
 #include <policy/feerate.h>
 #include <policy/fees.h>
-#include <policy/quantum_policy.h>
 #include <rpc/protocol.h>
 #include <rpc/request.h>
 #include <rpc/server.h>
@@ -35,21 +34,16 @@ static RPCHelpMan estimatesmartfee()
         "Estimates the approximate fee per kilobyte needed for a transaction to begin\n"
         "confirmation within conf_target blocks if possible and return the number of blocks\n"
         "for which the estimate is valid. Uses virtual transaction size as defined\n"
-        "in BIP 141 (witness data is discounted).\n"
-        "When signature_type is specified, applies quantum signature fee adjustments.\n",
+        "in BIP 141 (witness data is discounted).\n",
         {
             {"conf_target", RPCArg::Type::NUM, RPCArg::Optional::NO, "Confirmation target in blocks (1 - 1008)"},
             {"estimate_mode", RPCArg::Type::STR, RPCArg::Default{"economical"}, "The fee estimate mode.\n"
               + FeeModesDetail(std::string("default mode will be used"))},
-            {"signature_type", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "If specified, calculate fees for quantum signatures: 'ml-dsa' or 'slh-dsa'"},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
             {
                 {RPCResult::Type::NUM, "feerate", /*optional=*/true, "estimate fee rate in " + CURRENCY_UNIT + "/kvB (only present if no errors were encountered)"},
-                {RPCResult::Type::NUM, "quantum_feerate", /*optional=*/true, "adjusted fee rate after quantum discount in " + CURRENCY_UNIT + "/kvB (only if signature_type specified)"},
-                {RPCResult::Type::NUM, "discount_factor", /*optional=*/true, "discount factor applied (only if signature_type specified)"},
-                {RPCResult::Type::STR, "signature_type", /*optional=*/true, "quantum signature type used for estimation (only if signature_type specified)"},
                 {RPCResult::Type::ARR, "errors", /*optional=*/true, "Errors encountered during processing (if there are any)",
                     {
                         {RPCResult::Type::STR, "", "error"},
@@ -62,9 +56,7 @@ static RPCHelpMan estimatesmartfee()
         }},
         RPCExamples{
             HelpExampleCli("estimatesmartfee", "6") +
-            HelpExampleCli("estimatesmartfee", "6 \"economical\" \"ml-dsa\"") +
-            HelpExampleRpc("estimatesmartfee", "6") +
-            HelpExampleRpc("estimatesmartfee", "6, \"economical\", \"slh-dsa\"")
+            HelpExampleRpc("estimatesmartfee", "6")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
@@ -84,23 +76,6 @@ static RPCHelpMan estimatesmartfee()
                 if (fee_mode == FeeEstimateMode::CONSERVATIVE) conservative = true;
             }
 
-            // Parse optional quantum signature type
-            std::string sig_type;
-            double discount_factor = 1.0;
-            bool quantum_adjustment = false;
-            if (!request.params[2].isNull()) {
-                sig_type = request.params[2].get_str();
-                if (sig_type == "ml-dsa") {
-                    discount_factor = quantum::ML_DSA_FEE_DISCOUNT;
-                    quantum_adjustment = true;
-                } else if (sig_type == "slh-dsa") {
-                    discount_factor = quantum::SLH_DSA_FEE_DISCOUNT;
-                    quantum_adjustment = true;
-                } else {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid signature type. Use 'ml-dsa' or 'slh-dsa'");
-                }
-            }
-
             UniValue result(UniValue::VOBJ);
             UniValue errors(UniValue::VARR);
             FeeCalculation feeCalc;
@@ -110,17 +85,7 @@ static RPCHelpMan estimatesmartfee()
                 CFeeRate min_relay_feerate{mempool.m_opts.min_relay_feerate};
                 feeRate = std::max({feeRate, min_mempool_feerate, min_relay_feerate});
                 
-                CAmount base_fee = feeRate.GetFeePerK();
-                result.pushKV("feerate", ValueFromAmount(base_fee));
-                
-                // Apply quantum adjustments if requested
-                if (quantum_adjustment) {
-                    CAmount quantum_fee = static_cast<CAmount>(base_fee * quantum::QUANTUM_FEE_MULTIPLIER * discount_factor);
-                    quantum_fee = std::max(quantum_fee, base_fee);
-                    result.pushKV("quantum_feerate", ValueFromAmount(quantum_fee));
-                    result.pushKV("discount_factor", discount_factor);
-                    result.pushKV("signature_type", sig_type);
-                }
+                result.pushKV("feerate", ValueFromAmount(feeRate.GetFeePerK()));
             } else {
                 errors.push_back("Insufficient data or no feerate found");
                 result.pushKV("errors", std::move(errors));
@@ -141,14 +106,12 @@ static RPCHelpMan estimaterawfee()
         "and the results it returns will change if the internal implementation changes.\n"
         "\nEstimates the approximate fee per kilobyte needed for a transaction to begin\n"
         "confirmation within conf_target blocks if possible. Uses virtual transaction size as\n"
-        "defined in BIP 141 (witness data is discounted).\n"
-        "When signature_type is specified, applies quantum signature fee adjustments.\n",
+        "defined in BIP 141 (witness data is discounted).\n",
         {
             {"conf_target", RPCArg::Type::NUM, RPCArg::Optional::NO, "Confirmation target in blocks (1 - 1008)"},
             {"threshold", RPCArg::Type::NUM, RPCArg::Default{0.95}, "The proportion of transactions in a given feerate range that must have been\n"
             "confirmed within conf_target in order to consider those feerates as high enough and proceed to check\n"
             "lower buckets."},
-            {"signature_type", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "If specified, calculate fees for quantum signatures: 'ml-dsa' or 'slh-dsa'"},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "Results are returned for any horizon which tracks blocks up to the confirmation target",
@@ -156,7 +119,6 @@ static RPCHelpMan estimaterawfee()
                 {RPCResult::Type::OBJ, "short", /*optional=*/true, "estimate for short time horizon",
                     {
                         {RPCResult::Type::NUM, "feerate", /*optional=*/true, "estimate fee rate in " + CURRENCY_UNIT + "/kvB"},
-                        {RPCResult::Type::NUM, "quantum_feerate", /*optional=*/true, "adjusted fee rate after quantum discount in " + CURRENCY_UNIT + "/kvB (only if signature_type specified)"},
                         {RPCResult::Type::NUM, "decay", "exponential decay (per block) for historical moving average of confirmation data"},
                         {RPCResult::Type::NUM, "scale", "The resolution of confirmation targets at this time horizon"},
                         {RPCResult::Type::OBJ, "pass", /*optional=*/true, "information about the lowest range of feerates to succeed in meeting the threshold",
@@ -205,23 +167,6 @@ static RPCHelpMan estimaterawfee()
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid threshold");
             }
 
-            // Parse optional quantum signature type
-            std::string sig_type;
-            double discount_factor = 1.0;
-            bool quantum_adjustment = false;
-            if (!request.params[2].isNull()) {
-                sig_type = request.params[2].get_str();
-                if (sig_type == "ml-dsa") {
-                    discount_factor = quantum::ML_DSA_FEE_DISCOUNT;
-                    quantum_adjustment = true;
-                } else if (sig_type == "slh-dsa") {
-                    discount_factor = quantum::SLH_DSA_FEE_DISCOUNT;
-                    quantum_adjustment = true;
-                } else {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid signature type. Use 'ml-dsa' or 'slh-dsa'");
-                }
-            }
-
             UniValue result(UniValue::VOBJ);
 
             for (const FeeEstimateHorizon horizon : ALL_FEE_ESTIMATE_HORIZONS) {
@@ -251,16 +196,7 @@ static RPCHelpMan estimaterawfee()
 
                 // CFeeRate(0) is used to indicate error as a return value from estimateRawFee
                 if (feeRate != CFeeRate(0)) {
-                    CAmount base_fee = feeRate.GetFeePerK();
-                    horizon_result.pushKV("feerate", ValueFromAmount(base_fee));
-                    
-                    // Apply quantum adjustments if requested
-                    if (quantum_adjustment) {
-                        CAmount quantum_fee = static_cast<CAmount>(base_fee * quantum::QUANTUM_FEE_MULTIPLIER * discount_factor);
-                        quantum_fee = std::max(quantum_fee, base_fee);
-                        horizon_result.pushKV("quantum_feerate", ValueFromAmount(quantum_fee));
-                    }
-                    
+                    horizon_result.pushKV("feerate", ValueFromAmount(feeRate.GetFeePerK()));
                     horizon_result.pushKV("decay", buckets.decay);
                     horizon_result.pushKV("scale", (int)buckets.scale);
                     horizon_result.pushKV("pass", std::move(passbucket));
@@ -286,7 +222,7 @@ static RPCHelpMan estimatetxfee()
     return RPCHelpMan{
         "estimatetxfee",
         "Estimates the total fee for a transaction given the number of inputs and outputs.\n"
-        "Calculates the transaction size based on the signature type and applies appropriate fees.\n"
+        "Calculates the transaction size based on the signature type.\n"
         "Supports both standard ECDSA and quantum signatures.\n",
         {
             {"n_inputs", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of inputs in the transaction"},
@@ -327,7 +263,6 @@ static RPCHelpMan estimatetxfee()
             size_t sig_size = 0;
             size_t pubkey_size = 0;
             bool is_quantum = false;
-            double discount_factor = 1.0;
             
             if (!request.params[2].isNull()) {
                 sig_type = request.params[2].get_str();
@@ -340,12 +275,10 @@ static RPCHelpMan estimatetxfee()
                 sig_size = 3309;  // ML-DSA-65 signature size
                 pubkey_size = 1952;  // ML-DSA-65 public key size
                 is_quantum = true;
-                discount_factor = quantum::ML_DSA_FEE_DISCOUNT;
             } else if (sig_type == "slh-dsa") {
                 sig_size = 35664;  // SLH-DSA-192f signature size
                 pubkey_size = 48;   // SLH-DSA-192f public key size
                 is_quantum = true;
-                discount_factor = quantum::SLH_DSA_FEE_DISCOUNT;
             } else {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid signature type. Use 'ecdsa', 'ml-dsa', or 'slh-dsa'");
             }
@@ -401,20 +334,11 @@ static RPCHelpMan estimatetxfee()
                     CFeeRate min_relay_feerate{mempool.m_opts.min_relay_feerate};
                     feeRate = std::max({feeRate, min_mempool_feerate, min_relay_feerate});
                     
-                    CAmount base_fee_rate = feeRate.GetFeePerK();
-                    CAmount effective_fee_rate = base_fee_rate;
-                    
-                    // Apply quantum fee adjustments if needed
-                    if (is_quantum) {
-                        effective_fee_rate = static_cast<CAmount>(base_fee_rate * quantum::QUANTUM_FEE_MULTIPLIER * discount_factor);
-                        effective_fee_rate = std::max(effective_fee_rate, base_fee_rate);
-                    }
-                    
                     // Calculate total fee based on vsize
-                    CAmount total_fee = (effective_fee_rate * vsize) / 1000;
+                    CAmount total_fee = (feeRate.GetFeePerK() * vsize) / 1000;
                     
                     result.pushKV("total_fee", ValueFromAmount(total_fee));
-                    result.pushKV("feerate", ValueFromAmount(effective_fee_rate));
+                    result.pushKV("feerate", ValueFromAmount(feeRate.GetFeePerK()));
                 } else {
                     UniValue errors(UniValue::VARR);
                     errors.push_back("Insufficient data or no feerate found");

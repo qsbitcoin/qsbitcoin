@@ -93,7 +93,6 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 - MAX_STANDARD_TX_WEIGHT_QUANTUM = 1MB (vs 400KB standard)
 - Quantum opcodes using repurposed NOPs (OP_NOP4-7)
 - BIP9 soft fork activation (bit 3)
-- Fee discounts: ML-DSA 10%, SLH-DSA 5%
 
 ### Core Implementation Components
 
@@ -117,8 +116,8 @@ script_sig: [scheme_id:1 byte][sig_len:varint][signature][pubkey_len:varint][pub
 **RPC Commands**:
 - `getnewaddress` - Generate addresses (use algorithm parameter: "ecdsa" for standard, "ml-dsa" or "slh-dsa" for quantum)
 - `getquantuminfo` - Wallet quantum capabilities
-- `estimatesmartfee` - Fee estimation (use signature_type parameter for quantum discounts)
-- `estimatetxfee` - Transaction fee estimation for any signature type ("ecdsa", "ml-dsa", or "slh-dsa")
+- `estimatesmartfee` - Standard fee estimation
+- `estimatetxfee` - Transaction fee estimation (fees based on transaction size only)
 
 ### Development Workflow
 
@@ -212,31 +211,68 @@ When testing with `bitcoind` on regtest network:
 
 1. **Always run bitcoin-cli commands directly** without helper shell scripts
 2. **Delete and recreate wallet files on every test** to ensure clean state
-3. **Example test workflow**:
+3. **Mine blocks at key points** to ensure transactions are confirmed and UTXOs are properly tracked
+4. **Complete test workflow**:
 
 ```bash
+# Clean start - remove old data
+pkill -f "bitcoind.*regtest" || true
+rm -rf ~/.bitcoin/regtest/
+
 # Start bitcoind in regtest mode with fallback fee
 ./build/bin/bitcoind -regtest -daemon -fallbackfee=0.00001
+sleep 3  # Wait for startup
 
-# Create fresh wallet (delete all regtest wallets first)
-./build/bin/bitcoin-cli -regtest unloadwallet "test_wallet" 2>/dev/null
-rm -rf ~/.bitcoin/regtest/wallets/*
+# Create fresh wallet
 ./build/bin/bitcoin-cli -regtest createwallet "test_wallet"
 
-# Generate blocks for testing
-./build/bin/bitcoin-cli -regtest generatetoaddress 101 $(./build/bin/bitcoin-cli -regtest getnewaddress)
+# Generate initial blocks for spendable coins
+MINER=$(./build/bin/bitcoin-cli -regtest getnewaddress)
+./build/bin/bitcoin-cli -regtest generatetoaddress 101 $MINER
 
-# Test quantum functionality
-./build/bin/bitcoin-cli -regtest getnewquantumaddress "ML-DSA-65"
-./build/bin/bitcoin-cli -regtest getnewquantumaddress "SLH-DSA-192f"
+# Create quantum addresses (use standard getnewaddress with algorithm parameter)
+MLDSA=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "ml-dsa")
+SLHDSA=$(./build/bin/bitcoin-cli -regtest getnewaddress "" "bech32" "slh-dsa")
+echo "ML-DSA address: $MLDSA"
+echo "SLH-DSA address: $SLHDSA"
+
+# Send funds to quantum addresses
+./build/bin/bitcoin-cli -regtest sendtoaddress $MLDSA 10.0
+./build/bin/bitcoin-cli -regtest sendtoaddress $SLHDSA 10.0
+
+# IMPORTANT: Mine blocks to confirm transactions
+./build/bin/bitcoin-cli -regtest generatetoaddress 6 $MINER
+
+# Verify quantum UTXOs are tracked
+./build/bin/bitcoin-cli -regtest listunspent | grep -A5 -B5 "bcrt1q"
+
+# Test spending from quantum addresses
+DEST=$(./build/bin/bitcoin-cli -regtest getnewaddress)
+./build/bin/bitcoin-cli -regtest sendtoaddress $DEST 5.0
+
+# Mine to confirm the spend
+./build/bin/bitcoin-cli -regtest generatetoaddress 1 $MINER
+
+# Check quantum wallet info
+./build/bin/bitcoin-cli -regtest getquantuminfo
+
+# Test wallet restart (UTXOs should persist)
+./build/bin/bitcoin-cli -regtest stop
+sleep 2
+./build/bin/bitcoind -regtest -daemon -fallbackfee=0.00001
+sleep 3
+./build/bin/bitcoin-cli -regtest loadwallet "test_wallet"
+./build/bin/bitcoin-cli -regtest listunspent  # Should still show quantum UTXOs
 
 # Clean shutdown
 ./build/bin/bitcoin-cli -regtest stop
 ```
 
 **Important**: 
-- Always use fresh wallets for each test session to avoid state contamination from previous tests.
-- Always include `-fallbackfee=0.00001` when starting bitcoind in regtest mode to avoid fee estimation errors.
+- Always mine blocks after sending to quantum addresses to ensure UTXOs are confirmed
+- Mine at least 6 blocks for proper confirmation before testing spends
+- Always include `-fallbackfee=0.00001` when starting bitcoind in regtest mode
+- Quantum addresses use standard `getnewaddress` with algorithm parameter, not `getnewquantumaddress`
 
 ### System Administration and Debugging
 

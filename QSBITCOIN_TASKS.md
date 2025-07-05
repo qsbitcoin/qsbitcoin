@@ -544,9 +544,9 @@ class ISignatureScheme {
 - Created `policy/quantum_policy.h/cpp` for quantum-specific consensus rules
 - MAX_STANDARD_TX_WEIGHT_QUANTUM = 1MB (vs 400KB for standard)
 - MAX_STANDARD_QUANTUM_SIGS = 10 per transaction
-- Fee structure: Base fee × 1.5 × discount factor
-  - ML-DSA: 10% discount (0.9 factor)
-  - SLH-DSA: 5% discount (0.95 factor)
+- Fee structure: Standard fees based on transaction size only
+  - No special discounts or multipliers
+  - Larger quantum signatures result in higher fees due to size
 - Implemented quantum signature counting and validation
 - Added mixed signature type support (ECDSA + quantum)
 

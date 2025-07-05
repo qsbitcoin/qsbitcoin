@@ -71,45 +71,6 @@ BOOST_AUTO_TEST_CASE(quantum_signature_counting)
     BOOST_CHECK(quantum::HasQuantumSignatures(tx2));
 }
 
-BOOST_AUTO_TEST_CASE(quantum_fee_adjustment)
-{
-    CMutableTransaction mtx;
-    mtx.version = 2;
-    mtx.nLockTime = 0;
-    
-    // Transaction with no quantum signatures
-    CTxIn input1;
-    input1.scriptSig << std::vector<unsigned char>(71, 0xFF);
-    mtx.vin.push_back(input1);
-    
-    CTransaction tx1(mtx);
-    CAmount base_fee = 10000;
-    BOOST_CHECK_EQUAL(quantum::GetQuantumAdjustedFee(base_fee, tx1), base_fee);
-    
-    // Transaction with ML-DSA signature
-    CQuantumKey mldsaKey;
-    mldsaKey.MakeNewKey(KeyType::ML_DSA_65);
-    
-    uint256 hash;
-    hash.SetNull();
-    std::vector<unsigned char> mldsaSig;
-    mldsaKey.Sign(hash, mldsaSig);
-    
-    QuantumSignature qsig(SCHEME_ML_DSA_65, mldsaSig, mldsaKey.GetPubKey().GetKeyData());
-    std::vector<unsigned char> encodedSig = EncodeQuantumSignature(qsig);
-    
-    CTxIn input2;
-    input2.scriptSig << encodedSig;
-    mtx.vin.clear();
-    mtx.vin.push_back(input2);
-    
-    CTransaction tx2(mtx);
-    CAmount adjusted_fee = quantum::GetQuantumAdjustedFee(base_fee, tx2);
-    
-    // Should be base_fee * QUANTUM_FEE_MULTIPLIER * ML_DSA_FEE_DISCOUNT
-    CAmount expected = static_cast<CAmount>(base_fee * 1.5 * 0.9);
-    BOOST_CHECK_EQUAL(adjusted_fee, expected);
-}
 
 BOOST_AUTO_TEST_CASE(quantum_signature_policy)
 {
@@ -197,15 +158,6 @@ BOOST_AUTO_TEST_CASE(mixed_signature_types)
     BOOST_CHECK_EQUAL(quantum::CountQuantumSignatures(tx), 2);
     BOOST_CHECK(quantum::HasQuantumSignatures(tx));
     
-    // Check fee adjustment with mixed types
-    CAmount base_fee = 10000;
-    CAmount adjusted = quantum::GetQuantumAdjustedFee(base_fee, tx);
-    
-    // Should apply weighted average of discounts
-    // avg_discount = (1 * 0.9 + 1 * 0.95) / 2 = 0.925
-    // adjusted = base_fee * 1.5 * 0.925
-    CAmount expected = static_cast<CAmount>(base_fee * 1.5 * 0.925);
-    BOOST_CHECK_EQUAL(adjusted, expected);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
