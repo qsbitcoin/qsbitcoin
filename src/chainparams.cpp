@@ -122,6 +122,8 @@ std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, c
         return CChainParams::TestNet();
     case ChainType::TESTNET4:
         return CChainParams::TestNet4();
+    case ChainType::QSTESTNET:
+        return CChainParams::QSTestNet();
     case ChainType::SIGNET: {
         auto opts = CChainParams::SigNetOptions{};
         ReadSigNetArgs(args, opts);

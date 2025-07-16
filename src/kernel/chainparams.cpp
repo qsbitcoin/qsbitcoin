@@ -12,6 +12,7 @@
 #include <hash.h>
 #include <kernel/messagestartchars.h>
 #include <logging.h>
+#include <pow.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -22,9 +23,13 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
+
+#include <arith_uint256.h>
 
 using namespace util::hex_literals;
 
@@ -410,6 +415,181 @@ public:
 };
 
 /**
+ * QSTestnet: Quantum-Safe Bitcoin test network with custom genesis block.
+ */
+class CQSTestNetParams : public CChainParams {
+public:
+    CQSTestNetParams() {
+        m_chain_type = ChainType::QSTESTNET;
+        consensus.signet_blocks = false;
+        consensus.signet_challenge.clear();
+        consensus.nSubsidyHalvingInterval = 210000;
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256{};
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        consensus.powLimit = uint256{"00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
+        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+        consensus.nPowTargetSpacing = 10 * 60;
+        consensus.fPowAllowMinDifficultyBlocks = true;
+        consensus.enforce_BIP94 = true;
+        consensus.fPowNoRetargeting = false;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1512; // 75%
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
+
+        // Deployment of Taproot (BIPs 340-342)
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 1512; // 75%
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 2016;
+
+        // Deployment of Quantum-Safe Signatures
+        consensus.vDeployments[Consensus::DEPLOYMENT_QUANTUM_SIGS].bit = 3;
+        consensus.vDeployments[Consensus::DEPLOYMENT_QUANTUM_SIGS].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_QUANTUM_SIGS].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_QUANTUM_SIGS].min_activation_height = 0; // No activation delay
+        consensus.vDeployments[Consensus::DEPLOYMENT_QUANTUM_SIGS].threshold = 1512; // 75%
+        consensus.vDeployments[Consensus::DEPLOYMENT_QUANTUM_SIGS].period = 2016;
+
+        consensus.nMinimumChainWork = uint256{};
+        consensus.defaultAssumeValid = uint256{};
+
+        pchMessageStart[0] = 0x51; // 'Q'
+        pchMessageStart[1] = 0x53; // 'S'
+        pchMessageStart[2] = 0x42; // 'B'
+        pchMessageStart[3] = 0x54; // 'T'
+        nDefaultPort = 28333;
+        nPruneAfterHeight = 1000;
+        m_assumed_blockchain_size = 1;
+        m_assumed_chain_state_size = 1;
+
+        const char* pszTimestamp = "QSBitcoin Testnet Genesis - Quantum Safe Since 2025/07/16";
+        const CScript genesisOutputScript = CScript() << "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f"_hex << OP_CHECKSIG;
+        genesis = CreateGenesisBlock(pszTimestamp, genesisOutputScript, 1736985600, 4520877, 0x1e0fffff, 1, 50 * COIN);
+        
+        // Mine genesis block
+        bool mine_genesis = false; // Set to true to mine genesis block
+        if (mine_genesis) {
+            printf("Mining QSTestnet genesis block...\n");
+            arith_uint256 target;
+            target.SetCompact(genesis.nBits);
+            printf("Target: %s\n", target.ToString().c_str());
+            double probability = target.getdouble() / std::pow(2.0, 256);
+            printf("Difficulty: %.4f\n", 1.0 / probability);
+            printf("Expected hashes: %.0f\n\n", 1.0 / probability);
+            
+            auto start_time = std::chrono::steady_clock::now();
+            uint32_t nonce_start = genesis.nNonce;
+            uint32_t last_nonce = genesis.nNonce;
+            auto last_time = start_time;
+            
+            while (!CheckProofOfWork(genesis.GetHash(), genesis.nBits, consensus)) {
+                ++genesis.nNonce;
+                
+                // Debug: Show first few hashes
+                if (genesis.nNonce < 10) {
+                    printf("Nonce %u: Hash = %s\n", genesis.nNonce, genesis.GetHash().ToString().c_str());
+                }
+                
+                // Show progress every 1 million hashes
+                if (genesis.nNonce % 1000000 == 0) {
+                    auto current_time = std::chrono::steady_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
+                    auto interval = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time).count();
+                    
+                    if (interval > 0) {
+                        uint32_t hashes_in_interval = genesis.nNonce - last_nonce;
+                        double hashrate = (hashes_in_interval * 1000.0) / interval;
+                        
+                        // Estimate time remaining based on probability
+                        arith_uint256 target;
+                        target.SetCompact(genesis.nBits);
+                        double probability = target.getdouble() / std::pow(2.0, 256);
+                        double expected_hashes = 1.0 / probability;
+                        
+                        printf("Progress: %u hashes | %.2f H/s | Elapsed: %lds", 
+                               genesis.nNonce, hashrate, elapsed);
+                        
+                        // Only show ETA if we haven't exceeded expected hashes
+                        if (genesis.nNonce - nonce_start < expected_hashes) {
+                            double estimated_seconds = (expected_hashes - (genesis.nNonce - nonce_start)) / hashrate;
+                            printf(" | ETA: %.1f minutes", estimated_seconds / 60.0);
+                        } else {
+                            // We've exceeded expected hashes, show how much over
+                            double percent_over = ((genesis.nNonce - nonce_start) / expected_hashes - 1.0) * 100.0;
+                            printf(" | %.0f%% over expected", percent_over);
+                        }
+                        printf("\n");
+                        
+                        last_nonce = genesis.nNonce;
+                        last_time = current_time;
+                    }
+                }
+                
+                if (genesis.nNonce == 0) {
+                    ++genesis.nTime;
+                    printf("Wrapped nonce, incrementing timestamp to %u\n", genesis.nTime);
+                }
+            }
+            
+            auto end_time = std::chrono::steady_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
+            
+            printf("\nGenesis block found!\n");
+            printf("Total time: %ld seconds\n", total_elapsed);
+            printf("Total hashes: %u\n", genesis.nNonce - nonce_start);
+            printf("Average hashrate: %.2f H/s\n", (genesis.nNonce - nonce_start) / (double)total_elapsed);
+            printf("\nQSTestnet genesis nonce: %u\n", genesis.nNonce);
+            printf("QSTestnet genesis hash: %s\n", genesis.GetHash().ToString().c_str());
+            printf("QSTestnet genesis merkle: %s\n", genesis.hashMerkleRoot.ToString().c_str());
+        }
+        
+        // Update these values after mining
+        consensus.hashGenesisBlock = genesis.GetHash();
+        
+        // Verify genesis block hash and merkle root
+        assert(consensus.hashGenesisBlock == uint256{"0000091319de1b3007ac149ab0cfe75190a11f3d5df3b4a48f1a6dd8a7e7d32d"});
+        assert(genesis.hashMerkleRoot == uint256{"345be921e30c1da4938bc74d1dbe555e2dfd3a3d425c1a90125d7b47750e4d15"});
+        
+        vFixedSeeds.clear();
+        vSeeds.clear();
+        // DNS seeds will be added once stable nodes exist
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
+        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
+        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+
+        bech32_hrp = "qt"; // Quantum Testnet
+
+        fDefaultConsistencyChecks = false;
+        m_is_mockable_chain = false;
+
+        m_assumeutxo_data = {
+            // Will be populated once the network has grown
+        };
+
+        chainTxData = ChainTxData{
+            // Data will be populated once the network is active
+            0,
+            0,
+            0,
+        };
+    }
+};
+
+/**
  * Signet: test network with an additional consensus parameter (see BIP325).
  */
 class SigNetParams : public CChainParams {
@@ -691,6 +871,10 @@ std::unique_ptr<const CChainParams> CChainParams::TestNet()
 std::unique_ptr<const CChainParams> CChainParams::TestNet4()
 {
     return std::make_unique<const CTestNet4Params>();
+}
+std::unique_ptr<const CChainParams> CChainParams::QSTestNet()
+{
+    return std::make_unique<const CQSTestNetParams>();
 }
 
 std::vector<int> CChainParams::GetAvailableSnapshotHeights() const

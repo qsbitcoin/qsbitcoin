@@ -435,6 +435,8 @@ private:
             return " signet";
         case ChainType::REGTEST:
             return " regtest";
+        case ChainType::QSTESTNET:
+            return " qstestnet";
         case ChainType::MAIN:
             return "";
         }
