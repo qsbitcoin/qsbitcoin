@@ -1,2 +1,7 @@
 1003 - qt1qv2jwqnktkk2xwvddd97fs438hmpnntdx9p80xqeuhxhs5e07clrqj7c2jv
 1003 - high-security - qt1qjl3hplwh3fevlwqghngja27q8ccc8ul6v7kzrn6daslwpzcl3u0qamdtc0
+
+
+1004 - legacy - qt1q7m7fw4zpfpzv538h3c52am0s9f98dnda33zq9v
+1004 - quantum - qt1qf59vj7kfucjd83wu9wavw4lzewj482edpts02atlps82pdfv4lvsu8dhl7
+1004 - super secure - qt1qgektd78vc2zcvxs05ygkmcal8m9cctze0fuat3343fhtgy2wzzzqs66sy0
