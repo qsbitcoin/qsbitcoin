@@ -563,7 +563,14 @@ public:
         
         vFixedSeeds.clear();
         vSeeds.clear();
-        // DNS seeds will be added once stable nodes exist
+        
+        // Testnet bootstrap nodes
+        // These are the initial nodes for the QSTestnet network
+        // Format: IP addresses will be converted to seed format by generate-seeds.py
+        // For now, we'll add them as DNS seeds for easier management
+        vSeeds.emplace_back("192.168.1.102");
+        vSeeds.emplace_back("192.168.1.103");
+        vSeeds.emplace_back("192.168.1.104");
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
