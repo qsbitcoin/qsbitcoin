@@ -29,6 +29,7 @@
 #include <wallet/rpc/wallet.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
+#include <crypto/quantum_key.h>
 
 #include <memory>
 #include <string>
@@ -157,6 +158,11 @@ public:
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetNewDestination(type, label);
+    }
+    util::Result<CTxDestination> getNewQuantumDestination(const uint8_t scheme_id, const std::string& label) override
+    {
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->GetNewQuantumDestination(static_cast<quantum::SignatureSchemeID>(scheme_id), label);
     }
     bool getPubKey(const CScript& script, const CKeyID& address, CPubKey& pub_key) override
     {

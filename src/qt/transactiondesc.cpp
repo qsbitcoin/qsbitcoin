@@ -18,6 +18,7 @@
 #include <policy/policy.h>
 #include <validation.h>
 #include <wallet/types.h>
+#include <crypto/quantum_key.h>
 
 #include <cstdint>
 #include <string>
@@ -297,6 +298,38 @@ QString TransactionDesc::toHTML(interfaces::Node& node, interfaces::Wallet& wall
     strHTML += "<b>" + tr("Transaction total size") + ":</b> " + QString::number(wtx.tx->GetTotalSize()) + " bytes<br>";
     strHTML += "<b>" + tr("Transaction virtual size") + ":</b> " + QString::number(GetVirtualTransactionSize(*wtx.tx)) + " bytes<br>";
     strHTML += "<b>" + tr("Output index") + ":</b> " + QString::number(rec->getOutputIndex()) + "<br>";
+
+    // Check for quantum signatures in transaction
+    bool hasQuantumSigs = false;
+    std::string quantumAlgoUsed;
+    size_t largestSigSize = 0;
+    
+    for (const CTxIn& txin : wtx.tx->vin) {
+        if (!txin.scriptWitness.IsNull() && txin.scriptWitness.stack.size() > 0) {
+            const std::vector<unsigned char>& sig = txin.scriptWitness.stack[0];
+            if (sig.size() > 100) { // Quantum signatures are much larger than ECDSA
+                hasQuantumSigs = true;
+                if (sig.size() > largestSigSize) {
+                    largestSigSize = sig.size();
+                    // Check algorithm ID prefix
+                    if (sig.size() > 0) {
+                        if (sig[0] == quantum::SCHEME_ML_DSA_65) {
+                            quantumAlgoUsed = "ML-DSA-65";
+                        } else if (sig[0] == quantum::SCHEME_SLH_DSA_192F) {
+                            quantumAlgoUsed = "SLH-DSA-192f";
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if (hasQuantumSigs) {
+        strHTML += "<b>" + tr("Signature Algorithm") + ":</b> " + tr("Quantum-Safe") + " (" + QString::fromStdString(quantumAlgoUsed) + ")<br>";
+        strHTML += "<b>" + tr("Largest Signature Size") + ":</b> " + QString::number(largestSigSize) + " bytes<br>";
+    } else {
+        strHTML += "<b>" + tr("Signature Algorithm") + ":</b> " + tr("Standard (ECDSA)") + "<br>";
+    }
 
     // Message from normal bitcoin:URI (bitcoin:123...?message=example)
     for (const std::pair<std::string, std::string>& r : orderForm) {

@@ -23,12 +23,12 @@ RPC_USER="qstestnet"
 RPC_PASS="qstestnetpass"
 THREADS=$(nproc)
 
-echo "${GREEN}QSTestnet Mining Setup${NC}"
+echo -e "${GREEN}QSTestnet Mining Setup${NC}"
 echo "========================"
 
 # Check if cpuminer exists
 if [ ! -f "$CPUMINER_PATH" ]; then
-    echo "${RED}Error: cpuminer not found at $CPUMINER_PATH${NC}"
+    echo -e "${RED}Error: cpuminer not found at $CPUMINER_PATH${NC}"
     echo "Please build cpuminer first:"
     echo "  cd ~/mining/cpuminer && ./autogen.sh && ./configure && make"
     exit 1
@@ -36,7 +36,7 @@ fi
 
 # Check if bitcoind is running
 if ! pgrep -f "bitcoind.*qstestnet" > /dev/null; then
-    echo "${YELLOW}QSTestnet bitcoind is not running. Starting it...${NC}"
+    echo -e "${YELLOW}QSTestnet bitcoind is not running. Starting it...${NC}"
     
     # Create config directory if it doesn't exist
     mkdir -p "$DATA_DIR"
@@ -49,7 +49,7 @@ if ! pgrep -f "bitcoind.*qstestnet" > /dev/null; then
     
     # Check if started successfully
     if ! "$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" getblockchaininfo >/dev/null 2>&1; then
-        echo "${RED}Failed to start bitcoind. Check the logs at $DATA_DIR/debug.log${NC}"
+        echo -e "${RED}Failed to start bitcoind. Check the logs at $DATA_DIR/debug.log${NC}"
         exit 1
     fi
 fi
@@ -57,16 +57,19 @@ fi
 # Check if wallet exists, create if not
 if ! "$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" listwallets | grep -q "miner"; then
     echo "Creating miner wallet..."
-    "$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" createwallet "miner" >/dev/null
+    "$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" createwallet "miner" >/dev/null 2>&1 || {
+        echo -e "${YELLOW}Wallet may already exist, trying to load it...${NC}"
+        "$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" loadwallet "miner" >/dev/null 2>&1 || true
+    }
 fi
 
 # Get or create mining address
 echo "Getting mining address..."
 MINING_ADDR=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" -rpcwallet=miner getnewaddress "mining" "bech32")
-echo "${GREEN}Mining address: $MINING_ADDR${NC}"
+echo -e "${GREEN}Mining address: $MINING_ADDR${NC}"
 
 # Display current network info
-echo "\n${YELLOW}Network Status:${NC}"
+printf "\n${YELLOW}Network Status:${NC}\n"
 BLOCK_COUNT=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" getblockcount)
 DIFFICULTY=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" getdifficulty)
 CONNECTIONS=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" getconnectioncount)
@@ -75,7 +78,7 @@ echo "  Difficulty: $DIFFICULTY"
 echo "  Connections: $CONNECTIONS"
 
 # Mining options
-echo "\n${YELLOW}Mining Configuration:${NC}"
+printf "\n${YELLOW}Mining Configuration:${NC}\n"
 echo "  Algorithm: SHA256d"
 echo "  Threads: $THREADS"
 echo "  RPC URL: http://127.0.0.1:$RPC_PORT"
@@ -88,7 +91,7 @@ if [ -n "$USER_THREADS" ]; then
 fi
 
 # Start mining
-echo "\n${GREEN}Starting CPU mining with $THREADS threads...${NC}"
+printf "\n${GREEN}Starting CPU mining with $THREADS threads...${NC}\n"
 echo "Press Ctrl+C to stop mining"
 echo ""
 

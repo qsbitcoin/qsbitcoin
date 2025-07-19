@@ -126,7 +126,7 @@ void SignVerifyMessageDialog::on_signMessageButton_SM_clicked()
     if (!pkhash) {
         ui->addressIn_SM->setValid(false);
         ui->statusLabel_SM->setStyleSheet("QLabel { color: red; }");
-        ui->statusLabel_SM->setText(tr("The entered address does not refer to a legacy (P2PKH) key. Message signing for SegWit and other non-P2PKH address types is not supported in this version of %1. Please check the address and try again.").arg(CLIENT_NAME));
+        ui->statusLabel_SM->setText(tr("The entered address does not refer to a legacy (P2PKH) key. Message signing for SegWit, quantum-safe addresses, and other non-P2PKH address types is not supported in this version of %1. Please check the address and try again.").arg(CLIENT_NAME));
         return;
     }
 

@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/wallet.h>
+#include <crypto/quantum_key.h>
 
 #include <qt/receivecoinsdialog.h>
 #include <qt/forms/ui_receivecoinsdialog.h>
@@ -100,6 +101,31 @@ void ReceiveCoinsDialog::setModel(WalletModel *_model)
             add_address_type(OutputType::BECH32M, tr("Bech32m (Taproot)"), tr("Bech32m (BIP-350) is an upgrade to Bech32, wallet support is still limited."));
         }
 
+        // Populate algorithm type dropdown
+        ui->algorithmType->addItem(tr("Standard (ECDSA)"), 0);
+        ui->algorithmType->setItemData(0, tr("Standard Bitcoin signatures using ECDSA"), Qt::ToolTipRole);
+        ui->algorithmType->addItem(tr("Quantum-Safe (ML-DSA)"), 1);
+        ui->algorithmType->setItemData(1, tr("Quantum-safe signatures using ML-DSA-65 (recommended for most uses, ~3.3KB signatures)"), Qt::ToolTipRole);
+        ui->algorithmType->addItem(tr("Quantum-Safe High Security (SLH-DSA)"), 2);
+        ui->algorithmType->setItemData(2, tr("Maximum quantum security using SLH-DSA-192f (for high-value storage, ~35KB signatures)"), Qt::ToolTipRole);
+        ui->algorithmType->setCurrentIndex(0); // Default to ECDSA
+
+        // Connect algorithm change to update address type
+        connect(ui->algorithmType, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), [this](int index) {
+            if (index > 0) { // Quantum algorithms selected
+                // Force bech32 for quantum addresses
+                for (int i = 0; i < ui->addressType->count(); ++i) {
+                    if (ui->addressType->itemData(i).toInt() == (int)OutputType::BECH32) {
+                        ui->addressType->setCurrentIndex(i);
+                        ui->addressType->setEnabled(false); // Disable changing from bech32
+                        break;
+                    }
+                }
+            } else {
+                ui->addressType->setEnabled(true); // Re-enable for ECDSA
+            }
+        });
+
         // Set the button to be enabled or disabled based on whether the wallet can give out new addresses.
         ui->receiveButton->setEnabled(model->wallet().canGetAddresses());
 
@@ -122,6 +148,8 @@ void ReceiveCoinsDialog::clear()
     ui->reqAmount->clear();
     ui->reqLabel->setText("");
     ui->reqMessage->setText("");
+    ui->algorithmType->setCurrentIndex(0); // Reset to ECDSA
+    ui->addressType->setEnabled(true); // Re-enable address type selection
     updateDisplayUnit();
 }
 
@@ -152,7 +180,8 @@ void ReceiveCoinsDialog::on_receiveButton_clicked()
     QString label = ui->reqLabel->text();
     /* Generate new receiving address */
     const OutputType address_type = (OutputType)ui->addressType->currentData().toInt();
-    address = model->getAddressTableModel()->addRow(AddressTableModel::Receive, label, "", address_type);
+    const int algorithm_type = ui->algorithmType->currentData().toInt();
+    address = model->getAddressTableModel()->addRow(AddressTableModel::Receive, label, "", address_type, algorithm_type);
 
     switch(model->getAddressTableModel()->getEditStatus())
     {

@@ -99,6 +99,9 @@ public:
     // Get a new address.
     virtual util::Result<CTxDestination> getNewDestination(const OutputType type, const std::string& label) = 0;
 
+    // Get a new quantum address.
+    virtual util::Result<CTxDestination> getNewQuantumDestination(const uint8_t scheme_id, const std::string& label) = 0;
+
     //! Get public key.
     virtual bool getPubKey(const CScript& script, const CKeyID& address, CPubKey& pub_key) = 0;
 

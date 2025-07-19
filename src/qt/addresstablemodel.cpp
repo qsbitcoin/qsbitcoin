@@ -10,6 +10,7 @@
 #include <key_io.h>
 #include <wallet/types.h>
 #include <wallet/wallet.h>
+#include <crypto/quantum_key.h>
 
 #include <algorithm>
 
@@ -339,7 +340,7 @@ void AddressTableModel::updateEntry(const QString &address,
     priv->updateEntry(address, label, isMine, purpose, status);
 }
 
-QString AddressTableModel::addRow(const QString &type, const QString &label, const QString &address, const OutputType address_type)
+QString AddressTableModel::addRow(const QString &type, const QString &label, const QString &address, const OutputType address_type, int algorithm_type)
 {
     std::string strLabel = label.toStdString();
     std::string strAddress = address.toStdString();
@@ -368,21 +369,44 @@ QString AddressTableModel::addRow(const QString &type, const QString &label, con
     }
     else if(type == Receive)
     {
-        // Generate a new address to associate with given label
-        if (auto dest{walletModel->wallet().getNewDestination(address_type, strLabel)}) {
-            strAddress = EncodeDestination(*dest);
-        } else {
-            WalletModel::UnlockContext ctx(walletModel->requestUnlock());
-            if (!ctx.isValid()) {
-                // Unlock wallet failed or was cancelled
-                editStatus = WALLET_UNLOCK_FAILURE;
-                return QString();
-            }
-            if (auto dest_retry{walletModel->wallet().getNewDestination(address_type, strLabel)}) {
-                strAddress = EncodeDestination(*dest_retry);
+        // Check if quantum algorithm is selected
+        if (algorithm_type > 0) {
+            // Quantum address generation
+            uint8_t scheme_id = (algorithm_type == 1) ? quantum::SCHEME_ML_DSA_65 : quantum::SCHEME_SLH_DSA_192F;
+            
+            if (auto dest{walletModel->wallet().getNewQuantumDestination(scheme_id, strLabel)}) {
+                strAddress = EncodeDestination(*dest);
             } else {
-                editStatus = KEY_GENERATION_FAILURE;
-                return QString();
+                WalletModel::UnlockContext ctx(walletModel->requestUnlock());
+                if (!ctx.isValid()) {
+                    // Unlock wallet failed or was cancelled
+                    editStatus = WALLET_UNLOCK_FAILURE;
+                    return QString();
+                }
+                if (auto dest_retry{walletModel->wallet().getNewQuantumDestination(scheme_id, strLabel)}) {
+                    strAddress = EncodeDestination(*dest_retry);
+                } else {
+                    editStatus = KEY_GENERATION_FAILURE;
+                    return QString();
+                }
+            }
+        } else {
+            // Standard ECDSA address generation
+            if (auto dest{walletModel->wallet().getNewDestination(address_type, strLabel)}) {
+                strAddress = EncodeDestination(*dest);
+            } else {
+                WalletModel::UnlockContext ctx(walletModel->requestUnlock());
+                if (!ctx.isValid()) {
+                    // Unlock wallet failed or was cancelled
+                    editStatus = WALLET_UNLOCK_FAILURE;
+                    return QString();
+                }
+                if (auto dest_retry{walletModel->wallet().getNewDestination(address_type, strLabel)}) {
+                    strAddress = EncodeDestination(*dest_retry);
+                } else {
+                    editStatus = KEY_GENERATION_FAILURE;
+                    return QString();
+                }
             }
         }
     }
