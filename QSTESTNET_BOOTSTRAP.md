@@ -50,8 +50,8 @@ port=28333
 maxconnections=100
 fallbackfee=0.00001
 
-# Mining settings (for generating blocks)
-generatetoaddress=100
+# Mining settings
+# Note: Use external mining software for block generation
 
 # Logging
 debug=net
@@ -91,23 +91,31 @@ When starting the network for the first time:
 ### On Node 1 (192.168.1.102):
 
 1. Start the node first
-2. Generate the initial blocks:
+2. Set up proper mining (see QSTESTNET_MINING.md for detailed instructions):
 
 ```bash
 # Create a wallet
 ./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf createwallet "miner"
 
-# Generate an address
-ADDR=$(./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf getnewaddress)
+# Generate a mining address
+MINING_ADDR=$(./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf getnewaddress "mining" "bech32")
 
-# Mine initial blocks
-./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf generatetoaddress 101 $ADDR
+# Start mining with external software (example with cpuminer)
+# First install cpuminer as per QSTESTNET_MINING.md
+./minerd -o http://127.0.0.1:28332 -u qstestnet -p qstestnetpass --coinbase-addr=$MINING_ADDR -t $(nproc)
+
+# Mine at least 101 blocks before coins become spendable
+# Monitor progress:
+watch -n 10 './build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf getblockcount'
 ```
+
+**Note**: The `generatetoaddress` command is for regtest only and will not work on QSTestnet which uses real Proof-of-Work.
 
 ### On Nodes 2 & 3:
 
 1. Start the nodes
 2. They should automatically connect to Node 1 and sync the blockchain
+3. Optionally set up mining on these nodes as well to increase network hash rate
 
 ## Testing Quantum Addresses
 
@@ -125,8 +133,9 @@ echo "SLH-DSA address: $SLHDSA"
 ./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf sendtoaddress $MLDSA 10.0
 ./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf sendtoaddress $SLHDSA 10.0
 
-# Mine to confirm
-./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf generatetoaddress 6 $ADDR
+# Wait for mining to confirm transactions (mining should be running continuously)
+# Check confirmations:
+./build/bin/bitcoin-cli -conf=~/.qsbitcoin/qstestnet/bitcoin.conf listtransactions "*" 10
 ```
 
 ## Network Monitoring
