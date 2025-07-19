@@ -1,6 +1,21 @@
-1003 - qt1qv2jwqnktkk2xwvddd97fs438hmpnntdx9p80xqeuhxhs5e07clrqj7c2jv
+(NODE 1003)
+
+wallet 1 - quantum_wallet
+
+1003 - quantum - qt1qv2jwqnktkk2xwvddd97fs438hmpnntdx9p80xqeuhxhs5e07clrqj7c2jv
 1003 - high-security - qt1qjl3hplwh3fevlwqghngja27q8ccc8ul6v7kzrn6daslwpzcl3u0qamdtc0
 
+============
+
+wallet 2 - quantum_test
+
+1003 - legacy - qt1qr7jxdjfu4rwgcnt9683apnt2j73lek0rsk690m
+1003 - quantum - qt1qt5yy8h67gw9cfwmyhcm2djk8kmkl65p5xa8p8l8llnlrqed5hyas5d020z
+1003 - high-security - qt1qyqj0ru543tyv3cf5rnm0cze487yml5vrn3qhzsuu7353c266ganqr3kq32
+
+-------------
+
+(NODE 1004)
 
 1004 - legacy - qt1q7m7fw4zpfpzv538h3c52am0s9f98dnda33zq9v
 1004 - quantum - qt1qf59vj7kfucjd83wu9wavw4lzewj482edpts02atlps82pdfv4lvsu8dhl7
