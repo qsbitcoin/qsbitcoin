@@ -9,15 +9,15 @@ set -e
 QSBITCOIN_DIR="/home/user/work/bitcoin"
 CONFIG_FILE="$HOME/.qsbitcoin/qstestnet/bitcoin.conf"
 
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Colors - using printf format
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+NC=$'\033[0m'
 
 clear
 
-echo -e "${GREEN}QSTestnet Mining Monitor${NC}"
+echo "${GREEN}QSTestnet Mining Monitor${NC}"
 echo "========================"
 echo "Press Ctrl+C to exit"
 echo ""
@@ -50,12 +50,12 @@ while true; do
         tput ed
         
         # Display info
-        echo -e "${YELLOW}Network:${NC} $CHAIN"
-        echo -e "${YELLOW}Blocks:${NC} $(format_number $BLOCKS)"
-        echo -e "${YELLOW}Difficulty:${NC} $DIFFICULTY"
-        echo -e "${YELLOW}Network Hashrate:${NC} $(format_number ${HASHRATE%.*}) H/s"
-        echo -e "${YELLOW}Mempool:${NC} $POOLED_TX transactions"
-        echo -e "${YELLOW}Peers:${NC} $PEERS"
+        echo "${YELLOW}Network:${NC} $CHAIN"
+        echo "${YELLOW}Blocks:${NC} $(format_number $BLOCKS)"
+        echo "${YELLOW}Difficulty:${NC} $DIFFICULTY"
+        echo "${YELLOW}Network Hashrate:${NC} $(format_number ${HASHRATE%.*}) H/s"
+        echo "${YELLOW}Mempool:${NC} $POOLED_TX transactions"
+        echo "${YELLOW}Peers:${NC} $PEERS"
         
         # Get last block info if available
         if [ "$BLOCKS" -gt "0" ]; then
@@ -71,28 +71,45 @@ while true; do
                 MINUTES=$((TIME_DIFF / 60))
                 SECONDS=$((TIME_DIFF % 60))
                 
-                echo -e "\n${BLUE}Last Block:${NC}"
-                echo -e "  Time: ${MINUTES}m ${SECONDS}s ago"
-                echo -e "  Size: $(format_number $BLOCK_SIZE) bytes"
-                echo -e "  Transactions: $BLOCK_TX"
+                echo ""
+                echo "${BLUE}Last Block:${NC}"
+                echo "  Time: ${MINUTES}m ${SECONDS}s ago"
+                echo "  Size: $(format_number $BLOCK_SIZE) bytes"
+                echo "  Transactions: $BLOCK_TX"
             fi
         fi
         
         # Check if mining (look for cpuminer process)
         if pgrep -f "minerd.*qstestnet" > /dev/null; then
-            echo -e "\n${GREEN}✓ Mining is active${NC}"
+            echo ""
+            echo "${GREEN}✓ Mining is active${NC}"
             
             # Try to get miner's balance
             BALANCE=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" -rpcwallet=miner getbalance 2>/dev/null || echo "0")
-            if [ "$BALANCE" != "0" ]; then
-                echo -e "${YELLOW}Miner Balance:${NC} $BALANCE BTC"
+            UNCONFIRMED=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" -rpcwallet=miner getunconfirmedbalance 2>/dev/null || echo "0")
+            BALANCES=$("$QSBITCOIN_DIR/build/bin/bitcoin-cli" -conf="$CONFIG_FILE" -rpcwallet=miner getbalances 2>/dev/null || echo "{}")
+            
+            if [ "$BALANCES" != "{}" ]; then
+                SPENDABLE=$(echo "$BALANCES" | jq -r '.mine.trusted // 0')
+                IMMATURE=$(echo "$BALANCES" | jq -r '.mine.immature // 0')
+                PENDING=$(echo "$BALANCES" | jq -r '.mine.untrusted_pending // 0')
+                
+                echo "${YELLOW}Miner Balance:${NC}"
+                echo "  Spendable: $SPENDABLE BTC"
+                echo "  Immature: $IMMATURE BTC (needs 100 confirmations)"
+                if [ "$PENDING" != "0" ]; then
+                    echo "  Pending: $PENDING BTC"
+                fi
+            else
+                echo "${YELLOW}Miner Balance:${NC} $BALANCE BTC"
             fi
         else
-            echo -e "\n${YELLOW}⚠ Mining is not active${NC}"
+            echo ""
+            echo "${YELLOW}⚠ Mining is not active${NC}"
             echo "Run ./start_qstestnet_mining.sh to start mining"
         fi
     else
-        echo -e "${YELLOW}Waiting for bitcoind connection...${NC}"
+        echo "${YELLOW}Waiting for bitcoind connection...${NC}"
     fi
     
     sleep 5

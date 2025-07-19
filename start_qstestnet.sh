@@ -30,27 +30,32 @@ mkdir -p "$DATA_DIR"
 echo "Generating configuration..."
 cat > "$CONF_FILE" << EOF
 # QSTestnet configuration
-testnet=1
+# Global settings
 chain=qstestnet
 server=1
 listen=1
 daemon=0  # Run in foreground for this script
 
-# RPC settings
+# Global RPC authentication
 rpcuser=qstestnet
 rpcpassword=qstestnetpass
-rpcallowip=192.168.1.0/24
-rpcbind=0.0.0.0
-
-# Network settings
-port=28333
-maxconnections=100
-fallbackfee=0.00001
 
 # Logging
 debug=net
 debug=validation
 debuglogfile=debug.log
+
+# QSTestnet-specific settings
+[qstestnet]
+# RPC settings
+rpcallowip=192.168.1.0/24
+rpcbind=0.0.0.0
+rpcport=28332
+
+# Network settings
+port=28333
+maxconnections=100
+fallbackfee=0.00001
 
 # Connect to other testnet nodes
 EOF
@@ -69,13 +74,13 @@ if [ "$CURRENT_IP" == "192.168.1.102" ] && [ ! -d "$DATA_DIR/blocks" ]; then
     echo ""
     echo "This appears to be the first node. After startup, you may want to:"
     echo "1. Create a wallet: ./build/bin/bitcoin-cli -conf=$CONF_FILE createwallet \"miner\""
-    echo "2. Generate initial blocks: ./build/bin/bitcoin-cli -conf=$CONF_FILE generatetoaddress 101 \$(./build/bin/bitcoin-cli -conf=$CONF_FILE getnewaddress)"
+    echo "2. Start mining with external miner (see QSTESTNET_MINING.md)"
 fi
 
 # Start the node
 echo ""
 echo "Starting QSTestnet node..."
-echo "RPC interface will be available at: http://$CURRENT_IP:18332"
+echo "RPC interface will be available at: http://$CURRENT_IP:28332"
 echo "P2P port: $CURRENT_IP:28333"
 echo ""
 echo "Useful commands:"
